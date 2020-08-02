@@ -132,7 +132,7 @@ void load_data(vector<Mat> *images, vector<Mat> *intrinsics, vector<Mat> *rotati
         intrinsics->push_back(K);
 
         // throw away line "0 0 0"..... I don't know why it is there...
-        // maybe for radial distortion...
+        // maybe for radial distortion, so unused in this algorithm...
         bytes_read = getline(&line, &n, fp);
         ptr = strstr(line,"\n");
         strncpy(ptr,"\0",1);
@@ -558,8 +558,8 @@ int main(int argc, char **argv) {
     }
 
     char *data_path = argv[1];
-    int depth_count = 200;
-    int window_size = 5;
+    int depth_count = 300;
+    int window_size = 7;
     
     vector<Mat> images;
     vector<Mat> depth_maps;

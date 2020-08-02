@@ -1,4 +1,4 @@
-# Install script for directory: /home/nathaniel/dev/education/cs532/final_projects/plane_sweep/cpp
+# Install script for directory: /home/nathaniel/dev/personal/plane_sweep/cpp
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -45,5 +45,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/home/nathaniel/dev/education/cs532/final_projects/plane_sweep/cpp/build/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/home/nathaniel/dev/personal/plane_sweep/cpp/build/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
