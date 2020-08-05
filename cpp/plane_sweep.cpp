@@ -296,7 +296,7 @@ void load_data(vector<Mat> *images, vector<Mat> *intrinsics, vector<Mat> *rotati
     
 }
 
-Mat plane_sweep(vector<Mat> images, int index, vector<Mat> K, vector<Mat> R, vector<Mat> t, vector<Mat> P, vector<Mat> bounds, int depth_count, int window_size) {
+Mat plane_sweep(vector<float> &cost_volume, vector<Mat> images, int index, vector<Mat> K, vector<Mat> R, vector<Mat> t, vector<Mat> P, vector<Mat> bounds, int depth_count, int window_size) {
     Size shape = images[index].size();
     float cost;
 
@@ -318,7 +318,7 @@ Mat plane_sweep(vector<Mat> images, int index, vector<Mat> K, vector<Mat> R, vec
 
     Mat depth_map = Mat::zeros(shape.height,shape.width,CV_32F);
     Mat depth_values = Mat::zeros(shape.height,shape.width,CV_32F);
-    vector<float> cost_volume(shape.width*shape.height*depth_count);
+    //vector<float> cost_volume(shape.width*shape.height*depth_count);
 
     fill(cost_volume.begin(), cost_volume.end(), -1);
     depth_map.setTo(0);
@@ -550,6 +550,21 @@ Mat plane_sweep(vector<Mat> images, int index, vector<Mat> K, vector<Mat> R, vec
     return depth_map;
 }
 
+void add_noise(vector<float> &cost_volume) {
+    cout << "Adding Gaussian noise to cost volume data..." << endl;
+}
+
+
+void stability_fusion(){
+    cout << "Running stability-based fusion..." << endl;
+}
+
+
+void confidence_fusion(){
+    cout << "Running confidence-based fusion..." << endl;
+}
+
+
 int main(int argc, char **argv) {
     
     if (argc != 2) {
@@ -558,8 +573,8 @@ int main(int argc, char **argv) {
     }
 
     char *data_path = argv[1];
-    int depth_count = 300;
-    int window_size = 7;
+    int depth_count = 10;
+    int window_size = 5;
     
     vector<Mat> images;
     vector<Mat> depth_maps;
@@ -568,6 +583,7 @@ int main(int argc, char **argv) {
     vector<Mat> translations;
     vector<Mat> P;
     vector<Mat> bounds;
+    vector<vector<float>> confidence_maps;
     
     // load images, Ks, Rs, ts, ps, bounds
     printf("Loading data...\n");
@@ -576,14 +592,25 @@ int main(int argc, char **argv) {
     int img_count = images.size();
 
     // build depth map
-    for (int i=1; i<img_count; ++i) {
+    for (int i=0; i<img_count; ++i) {
         printf("Computing depth map for image %d/%d...\n",i+1,img_count);
-        Mat map = plane_sweep(images, i, intrinsics, rotations, translations, P, bounds, depth_count, window_size);
 
+        Size shape = images[i].size();
+        vector<float> cost_volume(shape.width*shape.height*depth_count);
+
+        Mat map = plane_sweep(cost_volume, images, i, intrinsics, rotations, translations, P, bounds, depth_count, window_size);
+        add_noise(cost_volume);
+
+        confidence_maps.push_back(cost_volume);
         depth_maps.push_back(map);
 
         imwrite("depth_" + to_string(i) + ".png",map);
     }
+
+    stability_fusion();
+    confidence_fusion();
+
+
 
     return EXIT_SUCCESS;
 }
