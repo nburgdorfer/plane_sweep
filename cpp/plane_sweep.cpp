@@ -568,7 +568,7 @@ int main(int argc, char **argv) {
     }
 
     char *data_path = argv[1];
-    int depth_count = 100;
+    int depth_count = 20;
     int window_size = 11;
     
     vector<Mat> images;
@@ -587,7 +587,7 @@ int main(int argc, char **argv) {
     int img_count = images.size();
 
     // build depth map
-    for (int i=0; i<img_count; ++i) {
+    for (int i=1; i<img_count-1; ++i) {
         printf("Computing depth map for image %d/%d...\n",i+1,img_count);
 
         Size shape = images[i].size();
@@ -603,8 +603,6 @@ int main(int argc, char **argv) {
 
     stability_fusion();
     confidence_fusion();
-
-
 
     return EXIT_SUCCESS;
 }
