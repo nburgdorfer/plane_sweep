@@ -181,7 +181,7 @@ void load_data(vector<Mat> *images, vector<Mat> *intrinsics, vector<Mat> *rotati
 
         fclose(fp);
     }
-
+/*
     // load P
     strcpy(p_path,data_path);
     strcat(p_path,"p/");
@@ -293,25 +293,28 @@ void load_data(vector<Mat> *images, vector<Mat> *intrinsics, vector<Mat> *rotati
 
         fclose(fp);
     }
+*/
     
 }
 
-Mat plane_sweep(vector<float> &cost_volume, vector<Mat> images, int index, vector<Mat> K, vector<Mat> R, vector<Mat> t, vector<Mat> P, vector<Mat> bounds, int depth_count, int window_size) {
+Mat plane_sweep(vector<float> &cost_volume, vector<Mat> images, int index, vector<Mat> K, vector<Mat> R, vector<Mat> t, vector<Mat> P, vector<Mat> bounds, int depth_count, int window_size, bool r_applied) {
     Size shape = images[index].size();
     float cost;
 
     // compute bounds
     Mat C = t[index];
 
+    /*
     Mat n0 = Mat::zeros(3,1,CV_32F);
     n0.at<float>(2,0) = 1;
     Mat n1 = R[index]*n0;
 
     Mat v_min = (bounds[index].row(1)).t() - t[index];
     Mat v_max = (bounds[index].row(0)).t() - t[index];
+    */
 
-    float min_dist = v_min.dot(n1);
-    float max_dist = v_max.dot(n1);
+    float min_dist = 3;//v_min.dot(n1);
+    float max_dist = 6;//v_max.dot(n1);
 
     float interval = (max_dist-min_dist)/depth_count;
     const int sizes[3] = {shape.height, shape.width, depth_count};
@@ -337,17 +340,18 @@ Mat plane_sweep(vector<float> &cost_volume, vector<Mat> images, int index, vecto
     for (float z_curr = min_dist,d=0; d<depth_count; z_curr+=interval,++d) {
         vector<Mat> img_homogs;
         for (int i=0; i<img_count; ++i) {
+    
             /*
             // TEST
             Mat mtest;
             mtest.push_back(R[i]);
-            mtest.push_back((-R[i].t() * t[i]).t());
+            mtest.push_back((-R[i].t()*t[i]).t());
             mtest = mtest.t();
             Mat ptest = K[i]*mtest;
 
             cout << "Mtest:\n" << mtest << endl;
             cout << "Test P:\n" <<  ptest << endl;
-            cout << "True P:\n" <<  P[i] << endl<<endl;
+            //cout << "True P:\n" <<  P[i] << endl<<endl;
             // TEST
             */
             
@@ -357,8 +361,14 @@ Mat plane_sweep(vector<float> &cost_volume, vector<Mat> images, int index, vecto
 
             // compute relative extrinsics
             Mat M1;
-            M1.push_back(R[index]);
-            M1.push_back((-R[index].t()*t[index]).t());
+            // check to see if rotation matrix was already applied to translation vector
+            if (r_applied) {
+                M1.push_back(R[index].t());
+                M1.push_back(t[index].t());
+            } else {
+                M1.push_back(R[index]);
+                M1.push_back((-R[index].t()*t[index]).t());
+            }
             M1 = M1.t();
             Mat temp1;
             temp1.push_back(Mat::zeros(3,1,CV_32F));
@@ -366,8 +376,14 @@ Mat plane_sweep(vector<float> &cost_volume, vector<Mat> images, int index, vecto
             M1.push_back(temp1.t());
 
             Mat M2;
-            M2.push_back(R[i]);
-            M2.push_back((-R[i].t()*t[i]).t());
+            // check to see if rotation matrix was already applied to translation vector
+            if (r_applied) {
+                M2.push_back(R[i].t());
+                M2.push_back(t[i].t());
+            } else {
+                M2.push_back(R[i]);
+                M2.push_back((-R[i].t()*t[i]).t());
+            }
             M2 = M2.t();
             Mat temp2;
             temp2.push_back(Mat::zeros(3,1,CV_32F));
@@ -464,7 +480,7 @@ Mat plane_sweep(vector<float> &cost_volume, vector<Mat> images, int index, vecto
         perc = (y/(float)(shape.height-offset)) * 100;
         lb_ind = static_cast<int>(floor(perc / 5)) + 1;
         loading_bar[lb_ind] = '#';
-        cerr << "\r\tBuilding depth map: " << loading_bar << std::flush;
+        cout << "\r\tBuilding depth map: " << loading_bar << std::flush;
 
         for (int x=offset; x<shape.width-offset; ++x) {
             for (float d=0,z_curr=min_dist; d<depth_count; ++d,z_curr+=interval) {
@@ -562,14 +578,15 @@ void confidence_fusion(){
 
 int main(int argc, char **argv) {
     
-    if (argc != 2) {
-        fprintf(stderr, "Error: usage %s <path-to-images>\n", argv[0]);
+    if (argc != 3) {
+        fprintf(stderr, "Error: usage %s <0 if camera centers / 1 if translation vectors> <path-to-images>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
-    char *data_path = argv[1];
-    int depth_count = 20;
-    int window_size = 11;
+    bool r_applied = atoi(argv[1]);
+    char *data_path = argv[2];
+    int depth_count = 30;
+    int window_size = 5;
     
     vector<Mat> images;
     vector<Mat> depth_maps;
@@ -593,7 +610,7 @@ int main(int argc, char **argv) {
         Size shape = images[i].size();
         vector<float> cost_volume(shape.width*shape.height*depth_count);
 
-        Mat map = plane_sweep(cost_volume, images, i, intrinsics, rotations, translations, P, bounds, depth_count, window_size);
+        Mat map = plane_sweep(cost_volume, images, i, intrinsics, rotations, translations, P, bounds, depth_count, window_size, r_applied);
 
         confidence_maps.push_back(cost_volume);
         depth_maps.push_back(map);
@@ -601,7 +618,7 @@ int main(int argc, char **argv) {
         imwrite("depth_" + to_string(i) + ".png",map);
     }
 
-    stability_fusion();
+    //stability_fusion();
     confidence_fusion();
 
     return EXIT_SUCCESS;
