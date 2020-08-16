@@ -566,6 +566,10 @@ Mat plane_sweep(vector<float> &cost_volume, vector<Mat> images, int index, vecto
     return depth_map;
 }
 
+void build_conf_map(vector<float> &conf_map, vector<float> cost_volume) {
+    cout << "Building confidence map..." << endl;
+}
+
 void stability_fusion(){
     cout << "Running stability-based fusion..." << endl;
 }
@@ -612,6 +616,8 @@ int main(int argc, char **argv) {
 
         Mat map = plane_sweep(cost_volume, images, i, intrinsics, rotations, translations, P, bounds, depth_count, window_size, r_applied);
 
+        vector<float> conf_map;
+        build_conf_map(conf_map, cost_volume);
         confidence_maps.push_back(cost_volume);
         depth_maps.push_back(map);
 
