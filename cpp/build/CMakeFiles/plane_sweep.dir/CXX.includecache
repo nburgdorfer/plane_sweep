@@ -27,6 +27,12 @@ iostream
 -
 iomanip
 -
+plane_sweep.h
+/home/nathaniel/dev/personal/plane_sweep/cpp/plane_sweep.h
+
+/home/nathaniel/dev/personal/plane_sweep/cpp/plane_sweep.h
+vector
+-
 
 /usr/local/include/opencv4/opencv2/core.hpp
 opencv2/core/cvdef.h
