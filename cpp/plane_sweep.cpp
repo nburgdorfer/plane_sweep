@@ -786,25 +786,55 @@ void stability_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_map
  * @param conf_maps - The container holding the confidence maps needed for the fusion process
  *
  */
-void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps){
+void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps, Size shape){
     cout << "Running confidence-based fusion..." << endl;
-    // TODO: Render all depth maps into reference view
-    
-    // TODO: Render all confidence maps into reference view
+    // TODO: Render all depth and confidence maps into reference view
+    vector<Mat> D_ref;
+    const int rows = shape.height;
+    const int cols = shape.width;
+
+    vector<Mat>::const_iterator d_map(depth_maps.begin());
+    vector<Mat>::const_iterator c_map(conf_maps.begin());
+
+    for (int r=0; r<rows; ++r) {
+        for (int c=0; c<cols; ++c) {
+            for (; d_map != depth_maps.end(); ++d_map) {
+            }
+
+            for (; c_map != conf_maps.end(); ++c_map) {
+            }
+        }
+    }
     
     // TODO: Fuse depth maps
+    float f = 0.0;
+    float C = 0.0;
+
     // for each pixel:
-        // set initial depth estimate and confidence value
-        // for each depth map:
-            // if depth is close to initial depth:
-                // f = (f*C + d_ref_i(r,c)*C_ref_i(r,c)) / C + C_ref_i(r,c)
-                // C = C + C_ref_i(r,c)
-            // if depth is too close (occlusion):
-                // C = C - C_ref_i(r,c)
-            // if depth is too large (free space violation):
-                // C = C - C_i(P(X))
-        // if C < 0:
-            // C = -1;
+    for (int r=0; r<rows; ++r) {
+        for (int c=0; c<cols; ++c) {
+            // set initial depth estimate and confidence value
+            //f = ;
+            //C = ;
+
+            d_map = depth_maps.begin();
+            c_map = depth_maps.end();
+
+            // for each depth map:
+            for (; d_map != depth_maps.end(); ++d_map,++c_map) {
+                // if depth is close to initial depth:
+                    // f = (f*C + d_ref_i(r,c)*C_ref_i(r,c)) / C + C_ref_i(r,c)
+                    // C = C + C_ref_i(r,c)
+                // if depth is too close (occlusion):
+                    // C = C - C_ref_i(r,c)
+                // if depth is too large (free space violation):
+                    // C = C - C_i(P(X))
+            }
+            if (C < 0.0) {
+                C = -1.0;
+            }
+        }
+    }
             
     // TODO: Fill in holes (-1 values) in depth map:
     // for each pixel:
@@ -827,7 +857,7 @@ int main(int argc, char **argv) {
     bool dtu = atoi(argv[1]);
     char *data_path = argv[2];
     float sigma = atof(argv[3]);
-    int depth_count = 10;
+    int depth_count = 5;
     int window_size = 3;
     size_t str_len = strlen(data_path);
 
@@ -843,6 +873,7 @@ int main(int argc, char **argv) {
     vector<Mat> P;
     vector<Mat> bounds;
     vector<Mat> confidence_maps;
+    Size shape;
     
     // load images, K's, R's, t's, P's, bounds
     printf("Loading data...\n");
@@ -854,7 +885,7 @@ int main(int argc, char **argv) {
     for (int i=1; i<img_count-1; ++i) {
         printf("Computing depth map for image %d/%d...\n",i+1,img_count);
 
-        Size shape = images[i].size();
+        shape = images[i].size();
         vector<float> cost_volume(shape.width*shape.height*depth_count);
 
         Mat map = plane_sweep(cost_volume, images, intrinsics, rotations, translations, P, bounds, i, depth_count, window_size, dtu);
@@ -884,7 +915,7 @@ int main(int argc, char **argv) {
     }
 
     //stability_fusion(depth_maps, confidence_maps);
-    confidence_fusion(depth_maps, confidence_maps);
+    confidence_fusion(depth_maps, confidence_maps, shape);
 
     return EXIT_SUCCESS;
 }
