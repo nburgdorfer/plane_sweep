@@ -469,6 +469,7 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
     float min_dist;
     float max_dist;
 
+    // check to see if its a dtu dataset
     if (dtu) {
         min_dist = bounds[index].at<float>(0,0);
         max_dist = bounds[index].at<float>(1,0);
@@ -489,10 +490,8 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
 
     Mat depth_map = Mat::zeros(shape.height,shape.width,CV_32F);
     Mat depth_values = Mat::zeros(shape.height,shape.width,CV_32F);
-    //vector<float> cost_volume(shape.width*shape.height*depth_count);
 
     fill(cost_volume.begin(), cost_volume.end(), numeric_limits<float>::max());
-    depth_map.setTo(0);
 
     // compute plane norm
     Mat n = Mat::zeros(3,1,CV_32F);
@@ -503,33 +502,18 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
 
     vector<vector<Mat>> homogs;
 
-    cout << "\tPre-computing homographies..." << endl;
     // pre-compute homographies
+    cout << "\tPre-computing homographies..." << endl;
     for (float z_curr = min_dist,d=0; d<depth_count; z_curr+=interval,++d) {
         vector<Mat> img_homogs;
         for (int i=0; i<img_count; ++i) {
-    
-            /*
-            // TEST
-            Mat mtest;
-            mtest.push_back(R[i]);
-            mtest.push_back((-R[i].t()*t[i]).t());
-            mtest = mtest.t();
-            Mat ptest = K[i]*mtest;
-
-            cout << "Mtest:\n" << mtest << endl;
-            cout << "Test P:\n" <<  ptest << endl;
-            //cout << "True P:\n" <<  P[i] << endl<<endl;
-            // TEST
-            */
-            
             if (index == i) {
                 continue;
             }
 
             // compute relative extrinsics
             Mat M1;
-            // check to see if rotation matrix was already applied to translation vector
+            // check to see if its a dtu dataset
             if (dtu) {
                 M1.push_back(R[index].t());
                 M1.push_back(t[index].t());
@@ -544,7 +528,7 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
             M1.push_back(temp1.t());
 
             Mat M2;
-            // check to see if rotation matrix was already applied to translation vector
+            // check to see if its a dtu dataset
             if (dtu) {
                 M2.push_back(R[i].t());
                 M2.push_back(t[i].t());
@@ -565,74 +549,6 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
 
             // compute homography
             Mat H = K[i]*(R_rel + (t_rel * n.t()/z_curr)) * K[index].inv();
-
-            /*
-            // TEST
-            Mat X_center_dot(4,1,CV_32F);
-            X_center_dot.at<float>(0,0) = -16.585;
-            X_center_dot.at<float>(1,0) = -10.9;
-            X_center_dot.at<float>(2,0) = -2.04;
-            X_center_dot.at<float>(3,0) = 1;
-
-            Mat X_spiral(4,1,CV_32F);
-            X_spiral.at<float>(0,0) = -18.5579;
-            X_spiral.at<float>(1,0) = -10.1996;
-            X_spiral.at<float>(2,0) = -0.838706;
-            X_spiral.at<float>(3,0) = 1;
-
-            Mat X_rc(4,1,CV_32F);
-            X_rc.at<float>(0,0) = -14.2707;
-            X_rc.at<float>(1,0) = -11.4276;
-            X_rc.at<float>(2,0) = 0.29232;
-            X_rc.at<float>(3,0) = 1;
-
-            Mat X_lc(4,1,CV_32F);
-            X_lc.at<float>(0,0) = -18.7557;
-            X_lc.at<float>(1,0) = -10.0207;
-            X_lc.at<float>(2,0) = 0.288476;
-            X_lc.at<float>(3,0) = 1;
-
-            Mat X_flc(4,1,CV_32F);
-            X_flc.at<float>(0,0) = -16.919;
-            X_flc.at<float>(1,0) = -8.67291;
-            X_flc.at<float>(2,0) = 0.652727;
-            X_flc.at<float>(3,0) = 1;
-
-            Mat x_i = P[i]*X_flc;
-            x_i.at<float>(0,0) = x_i.at<float>(0,0)/x_i.at<float>(2,0);
-            x_i.at<float>(1,0) = x_i.at<float>(1,0)/x_i.at<float>(2,0);
-            x_i.at<float>(2,0) = x_i.at<float>(2,0)/x_i.at<float>(2,0);
-
-            Mat x_ref = P[index]*X_flc;
-            x_ref.at<float>(0,0) = x_ref.at<float>(0,0)/x_ref.at<float>(2,0);
-            x_ref.at<float>(1,0) = x_ref.at<float>(1,0)/x_ref.at<float>(2,0);
-            x_ref.at<float>(2,0) = x_ref.at<float>(2,0)/x_ref.at<float>(2,0);
-
-            cout << "\ttrg coords:\n" << x_i << endl;
-            cout << "\tref coords:\n" << x_ref << endl;
-
-
-            Mat n0 = Mat::zeros(3,1,CV_32F);
-            n0.at<float>(2,0) = 1;
-            Mat n1 = R[index]*n0;
-
-            Mat v = X_flc(Rect(0,0,1,3)) - t[index];
-
-            float d = v.dot(n1);
-            
-            Mat H = K[i]*(R_rel + (t_rel * n.t()/d)) * K[index].inv();
-
-            Mat x = H*x_ref;
-            x.at<float>(0,0) = x.at<float>(0,0)/x.at<float>(2,0);
-            x.at<float>(1,0) = x.at<float>(1,0)/x.at<float>(2,0);
-            x.at<float>(2,0) = x.at<float>(2,0)/x.at<float>(2,0);
-
-
-            cout << "\tgt dist:\n" << d << endl;
-            cout << "\thomography est:\n" << x << endl << endl;
-
-            // Test
-            */
 
             img_homogs.push_back(H);
         }
@@ -688,7 +604,7 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
                 }
 
                 if(num_matches > 0) {
-                    long ind = (long) (y*shape.width*depth_count) + (long) (x*depth_count) + (long) d;
+                    long ind = static_cast<long>(y*shape.width*depth_count) + static_cast<long>(x*depth_count) + static_cast<long>(d);
                     cost_volume[ind] = cost/num_matches;
                 }
             }
@@ -707,7 +623,7 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
             best_depth = 0;
 
             for (float d=0; d<depth_count; ++d) {
-                ind = (long) (y*shape.width*depth_count) + (long) (x*depth_count) + (long) d;
+                ind = static_cast<long>(y*shape.width*depth_count) + static_cast<long>(x*depth_count) + static_cast<long>(d);
                 if ((cost_volume[ind] >= 0) && (cost_volume[ind] < min_cost)) {
                     min_cost = cost_volume[ind];
                     best_depth = d;
@@ -720,7 +636,7 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
     }
 
 
-    return depth_map;
+    return depth_values;
 }
 
 /*
@@ -740,29 +656,32 @@ void build_conf_map(const Mat &depth_map, Mat &conf_map, const vector<float> &co
     int cols = shape.width;
     long ind;
     long ind_0;
-    long conf_ind;
     float conf_sum;
+    float min2_cost;
     float curr_depth;
+    float eps = 1e-3;
 
     for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols; ++c) {
             conf_sum = 0.0;
+            curr_depth = depth_map.at<float>(r,c);
+            min2_cost = numeric_limits<float>::max();
 
             for(int d = 0; d < depth_count; ++d) {
-                curr_depth = depth_map.at<float>(r,c);
-                if (curr_depth == d) {
+                if (d == curr_depth) {
                     continue;
                 }
                 
                 ind = static_cast<long>(r*cols*depth_count) + static_cast<long>(c*depth_count) + static_cast<long>(d);
-                ind_0 = static_cast<long>(r*cols*depth_count) + static_cast<long>(c*depth_count) + static_cast<long>(curr_depth);
-                conf_sum += exp(-(pow(cost_volume[ind] - cost_volume[ind_0], 2) / pow(sigma,2)));
+
+                if (cost_volume[ind] < min2_cost) {
+                    min2_cost = cost_volume[ind];
+                }
             }
-            conf_sum = pow(conf_sum, -1);
-            if (conf_sum == numeric_limits<float>::infinity()) {
-                conf_sum = numeric_limits<float>::max();
-            }
-            conf_ind = static_cast<long>(r*cols) + static_cast<long>(c);
+
+            ind_0 = static_cast<long>(r*cols*depth_count) + static_cast<long>(c*depth_count) + static_cast<long>(curr_depth);
+
+            conf_sum = 1 - ((cost_volume[ind_0] + eps) / (min2_cost + eps));
             conf_map.at<float>(r,c) = conf_sum;
         }
     }
@@ -786,49 +705,137 @@ void stability_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_map
  * @param conf_maps - The container holding the confidence maps needed for the fusion process
  *
  */
-void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps, Size shape){
-    cout << "Running confidence-based fusion..." << endl;
+void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, const int index, const int depth_count, const Size shape, const bool dtu){
+    int img_count = K.size();
+    int depth_map_count = depth_maps.size();
+
+    vector<Mat> extrinsics;
+    vector<Mat> intrinsics;
+
+    // pre-compute intrinsics/extrinsics
+    for (int i=1; i<img_count-1; ++i) {
+        Mat M;
+        // check to see if its a dtu dataset
+        if (dtu) {
+            M.push_back(R[i].t());
+            M.push_back(t[i].t());
+        } else {
+            M.push_back(R[i]);
+            M.push_back((-R[i].t()*t[i]).t());
+        }
+        M = M.t();
+        Mat temp1;
+        temp1.push_back(Mat::zeros(3,1,CV_32F));
+        temp1.push_back(Mat::ones(1,1,CV_32F));
+        M.push_back(temp1.t());
+
+        Mat K_p;
+        K_p.push_back(K[i].t());
+        K_p.push_back(Mat::zeros(1,3,CV_32F));
+
+        K_p = K_p.t();
+        Mat temp2;
+        temp2.push_back(Mat::zeros(3,1,CV_32F));
+        temp2.push_back(Mat::ones(1,1,CV_32F));
+        K_p.push_back(temp2.t());
+
+        extrinsics.push_back(M);
+        intrinsics.push_back(K_p);
+    }
+
     // TODO: Render all depth and confidence maps into reference view
-    vector<Mat> D_ref;
+    vector<Mat> d_refs;
+    vector<Mat> c_refs;
     const int rows = shape.height;
     const int cols = shape.width;
 
-    vector<Mat>::const_iterator d_map(depth_maps.begin());
-    vector<Mat>::const_iterator c_map(conf_maps.begin());
+    for (int d=0; d < depth_map_count; ++d) {
+        if (d==index) {
+            continue;
+        }
 
-    for (int r=0; r<rows; ++r) {
-        for (int c=0; c<cols; ++c) {
-            for (; d_map != depth_maps.end(); ++d_map) {
-            }
+        Mat d_ref = Mat::zeros(shape, CV_32F);
+        Mat c_ref = Mat::zeros(shape, CV_32F);
 
-            for (; c_map != conf_maps.end(); ++c_map) {
+        for (int r=0; r<rows; ++r) {
+            for (int c=0; c<cols; ++c) {
+                float depth = depth_maps[d].at<float>(r,c);
+                float conf = conf_maps[d].at<float>(r,c);
+
+                // compute corresponding (x,y) locations
+                Mat x_1(4,1,CV_32F);
+                x_1.at<float>(0,0) = c;
+                x_1.at<float>(1,0) = r;
+                x_1.at<float>(2,0) = 1;
+                x_1.at<float>(3,0) = 1/depth_maps[d].at<float>(r,c);
+
+                Mat x_2 = intrinsics[index]*extrinsics[index]*extrinsics[d].inv()*intrinsics[d].inv() * x_1;
+                x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
+                x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
+                x_2.at<float>(2,0) = x_2.at<float>(2,0)/x_2.at<float>(2,0);
+                x_2.at<float>(3,0) = x_2.at<float>(3,0)/x_2.at<float>(2,0);
+
+                int c_p = (int) floor(x_2.at<float>(0,0));
+                int r_p = (int) floor(x_2.at<float>(1,0));
+
+                if (c_p < 0 || c_p >= shape.width || r_p < 0 || r_p >= shape.height) {
+                    continue;
+                }
+
+                d_ref.at<float>(r_p,c_p) = depth;
+                c_ref.at<float>(r_p,c_p) = conf;
+
             }
         }
+        write_map(d_ref, "dmap3_4.png");
+        exit(0);
+        d_refs.push_back(d_ref);
+        c_refs.push_back(c_ref);
     }
     
     // TODO: Fuse depth maps
     float f = 0.0;
+    float initial_f = 0.0;
     float C = 0.0;
+    float eps = 1e-3;
+    vector<Mat>::const_iterator d_map;
+    vector<Mat>::const_iterator c_map;
 
     // for each pixel:
     for (int r=0; r<rows; ++r) {
         for (int c=0; c<cols; ++c) {
             // set initial depth estimate and confidence value
-            //f = ;
-            //C = ;
+            d_map = d_refs.begin();
+            c_map = c_refs.begin();
+
+            // for each depth map:
+            for (; d_map != depth_maps.end(); ++d_map,++c_map) {
+                if (c_map->at<float>(r,c) > C) {
+                    f = d_map->at<float>(r,c);
+                    C = c_map->at<float>(r,c);
+                }
+            }
+
+            initial_f = f;
 
             d_map = depth_maps.begin();
-            c_map = depth_maps.end();
+            c_map = conf_maps.begin();
 
             // for each depth map:
             for (; d_map != depth_maps.end(); ++d_map,++c_map) {
                 // if depth is close to initial depth:
-                    // f = (f*C + d_ref_i(r,c)*C_ref_i(r,c)) / C + C_ref_i(r,c)
+                if (abs(d_map->at<float>(r,c) - initial_f) < eps) {
+                    //f = (f*C + d_ref_i(r,c)*C_ref_i(r,c)) / C + C_ref_i(r,c)
                     // C = C + C_ref_i(r,c)
+                } 
                 // if depth is too close (occlusion):
+                else if(d_map->at<float>(r,c) < initial_f) {
                     // C = C - C_ref_i(r,c)
+                }
                 // if depth is too large (free space violation):
+                else if(d_map->at<float>(r,c) > initial_f) {
                     // C = C - C_i(P(X))
+                }
             }
             if (C < 0.0) {
                 C = -1.0;
@@ -845,7 +852,6 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
             //  if pixel value >= 0:
                // perform median filter using only inliers with small window size 'w_s x w_s'
 }
-
 
 int main(int argc, char **argv) {
     
@@ -883,39 +889,33 @@ int main(int argc, char **argv) {
 
     // build depth map
     for (int i=1; i<img_count-1; ++i) {
-        printf("Computing depth map for image %d/%d...\n",i+1,img_count);
+        printf("Computing depth map for image %d/%d...\n",i,img_count-2);
 
         shape = images[i].size();
         vector<float> cost_volume(shape.width*shape.height*depth_count);
 
-        Mat map = plane_sweep(cost_volume, images, intrinsics, rotations, translations, P, bounds, i, depth_count, window_size, dtu);
+        Mat depth_map = plane_sweep(cost_volume, images, intrinsics, rotations, translations, P, bounds, i, depth_count, window_size, dtu);
 
         Mat conf_map = Mat::zeros(shape, CV_32F);
-        build_conf_map(map, conf_map, cost_volume, shape, depth_count, sigma);
+        build_conf_map(depth_map, conf_map, cost_volume, shape, depth_count, sigma);
+
         confidence_maps.push_back(conf_map);
-        depth_maps.push_back(map);
+        depth_maps.push_back(depth_map);
 
-        // shift range of depth values and write image
-        double max;
-        double min;
-        Point min_loc;
-        Point max_loc;
-        minMaxLoc(map, &min, &max, &min_loc, &max_loc);
-        Mat depth_map = (map)*(255/(max*1.5));
-        imwrite("depth_" + to_string(i) + ".png", depth_map);
+        // write depth image
+        write_map(depth_map, "depth_" + to_string(i) + ".png");
 
-        // shift range of confidence values and write image
-        max;
-        min;
-        min_loc;
-        max_loc;
-        cv::minMaxLoc(conf_map, &min, &max, &min_loc, &max_loc);
-        Mat c_map = (conf_map)*(255/(max*1.5));
-        imwrite("conf_" + to_string(i) + ".png", c_map);
+        // write confidence image
+        write_map(conf_map, "conf_" + to_string(i) + ".png");
     }
 
+    int depth_map_count = depth_maps.size();
+
     //stability_fusion(depth_maps, confidence_maps);
-    confidence_fusion(depth_maps, confidence_maps, shape);
+    for (int i=1; i<depth_map_count-1; ++i) {
+        printf("Running confidence-based fusion for depth map %d/%d...\n",i,img_count-2);
+        confidence_fusion(depth_maps, confidence_maps, intrinsics, rotations, translations, bounds, i, depth_count, shape, dtu);
+    }
 
     return EXIT_SUCCESS;
 }

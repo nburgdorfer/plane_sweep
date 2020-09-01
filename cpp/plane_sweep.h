@@ -17,6 +17,18 @@ inline bool comp(char *a, char *b) {
     return ret_val;
 }
 
+// Image writing utility (scales to [0,255])
+void write_map(const Mat map, string filename) {
+    double max;
+    double min;
+    Point min_loc;
+    Point max_loc;
+    minMaxLoc(map, &min, &max, &min_loc, &max_loc);
+    Mat img_map = map-min;
+    img_map = (img_map)*(255/(max));
+    imwrite(filename, img_map);
+}
+
 // Data loading functions
 void load_images(vector<Mat> *images, char *data_path);
 void load_camera_params(vector<Mat> *intrinsics, vector<Mat> *rotations, vector<Mat> *translations, char *data_path);
