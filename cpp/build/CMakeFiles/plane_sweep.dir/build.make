@@ -107,6 +107,8 @@ plane_sweep: /usr/local/lib/libopencv_photo.so.4.4.0
 plane_sweep: /usr/local/lib/libopencv_stitching.so.4.4.0
 plane_sweep: /usr/local/lib/libopencv_video.so.4.4.0
 plane_sweep: /usr/local/lib/libopencv_videoio.so.4.4.0
+plane_sweep: /usr/lib/libgomp.so
+plane_sweep: /usr/lib/libpthread.so
 plane_sweep: /usr/local/lib/libopencv_imgcodecs.so.4.4.0
 plane_sweep: /usr/local/lib/libopencv_calib3d.so.4.4.0
 plane_sweep: /usr/local/lib/libopencv_features2d.so.4.4.0
