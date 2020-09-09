@@ -9,6 +9,7 @@
 #include <dirent.h>
 #include <iostream>
 #include <iomanip>
+#include <omp.h>
 
 #include "plane_sweep.h"
 
@@ -420,7 +421,7 @@ void load_strecha_bounds(vector<Mat> *bounds, char *data_path) {
 
 
 /*
- * @brief
+ * @brief Loads in all the data necessary for running plane sweep
  *
  * @param images - The container to be populated with the images
  * @param intrinsics - The container to be populated with the intrinsic matrices for the images
@@ -461,11 +462,22 @@ void load_data(vector<Mat> *images, vector<Mat> *intrinsics, vector<Mat> *rotati
  *
  */
 Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &P, const vector<Mat> &bounds, int index, int depth_count, int window_size, bool dtu) {
+
     Size shape = images[index].size();
     float cost;
+    int img_count = images.size();
+    int offset = (window_size-1)/2;
+
+    vector<vector<Mat>> homogs;
+    Mat depth_map = Mat::zeros(shape,CV_32F);
+    Mat depth_values = Mat::zeros(shape,CV_32F);
+    fill(cost_volume.begin(), cost_volume.end(), numeric_limits<float>::max());
+
+    // create plane norm
+    Mat n = Mat::zeros(3,1,CV_32F);
+    n.at<float>(2,0) = 1;
 
     // compute bounds
-    Mat C = t[index];
     float min_dist;
     float max_dist;
 
@@ -486,25 +498,15 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
     }
 
     float interval = (max_dist-min_dist)/depth_count;
-    const int sizes[3] = {shape.height, shape.width, depth_count};
 
-    Mat depth_map = Mat::zeros(shape.height,shape.width,CV_32F);
-    Mat depth_values = Mat::zeros(shape.height,shape.width,CV_32F);
 
-    fill(cost_volume.begin(), cost_volume.end(), numeric_limits<float>::max());
-
-    // compute plane norm
-    Mat n = Mat::zeros(3,1,CV_32F);
-    n.at<float>(2,0) = 1;
-
-    int img_count = images.size();
-    int offset = (window_size-1)/2;
-
-    vector<vector<Mat>> homogs;
-
-    // pre-compute homographies
     cout << "\tPre-computing homographies..." << endl;
-    for (float z_curr = min_dist,d=0; d<depth_count; z_curr+=interval,++d) {
+//#pragma omp parallel num_threads(12) shared(homogs, dtu) private(img_homogs,M1,M2,temp1,temp2,M,H,z_curr)
+//{
+    // pre-compute homographies
+    //#pragma omp for
+    float z_curr = min_dist;
+    for (int d=0; d<depth_count; ++d) {
         vector<Mat> img_homogs;
         for (int i=0; i<img_count; ++i) {
             if (index == i) {
@@ -553,8 +555,9 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
             img_homogs.push_back(H);
         }
         homogs.push_back(img_homogs);
+        z_curr+=interval;
     }
-
+//} //omp
     int num_matches;
 
     cout << "\tBuilding depth map..." << endl;
@@ -611,7 +614,6 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
         }
     }
 
-
     // build depth map
     float min_cost;
     int best_depth;
@@ -630,7 +632,6 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
                 }
             }
             
-            depth_map.at<float>(y,x) = best_depth;
             depth_values.at<float>(y,x) = min_dist + (interval*best_depth);
         }
     }
@@ -650,39 +651,40 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
  * @param sigma - The standard deviation of the assumed gaussian noice for the depth estimates
  *
  */
-void build_conf_map(const Mat &depth_map, Mat &conf_map, const vector<float> &cost_volume, const Size shape, const int depth_count, const float sigma) {
+void build_conf_map(const Mat &depth_map, Mat &conf_map, const vector<float> &cost_volume, const Size shape, const int depth_count) {
     cout << "\tBuilding confidence map..." << endl;
     int rows = shape.height;
     int cols = shape.width;
     long ind;
-    long ind_0;
-    float conf_sum;
+    float conf;
+    float curr_cost;
+    float min1_cost;
     float min2_cost;
-    float curr_depth;
     float eps = 1e-3;
 
     for (int r = 0; r < rows; ++r) {
         for (int c = 0; c < cols; ++c) {
-            conf_sum = 0.0;
-            curr_depth = depth_map.at<float>(r,c);
+            conf = 0.0;
+            min1_cost = numeric_limits<float>::max();
             min2_cost = numeric_limits<float>::max();
 
+
             for(int d = 0; d < depth_count; ++d) {
-                if (d == curr_depth) {
-                    continue;
-                }
-                
                 ind = static_cast<long>(r*cols*depth_count) + static_cast<long>(c*depth_count) + static_cast<long>(d);
 
-                if (cost_volume[ind] < min2_cost) {
-                    min2_cost = cost_volume[ind];
+                curr_cost = cost_volume[ind];
+
+                if (curr_cost < min1_cost) {
+                    float temp = min1_cost;
+                    min1_cost = curr_cost;
+                    min2_cost = temp;
+                } else if(curr_cost < min2_cost) {
+                    min2_cost = curr_cost;
                 }
             }
 
-            ind_0 = static_cast<long>(r*cols*depth_count) + static_cast<long>(c*depth_count) + static_cast<long>(curr_depth);
-
-            conf_sum = 1 - ((cost_volume[ind_0] + eps) / (min2_cost + eps));
-            conf_map.at<float>(r,c) = conf_sum;
+            conf = 1 - ((min1_cost + eps) / (min2_cost + eps));
+            conf_map.at<float>(r,c) = conf;
         }
     }
 }
@@ -712,6 +714,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     vector<Mat> extrinsics;
     vector<Mat> intrinsics;
 
+    cout << "\tPre-Computing Intrinsics/Extrinsics..." << endl;
     // pre-compute intrinsics/extrinsics
     for (int i=1; i<img_count-1; ++i) {
         Mat M;
@@ -743,6 +746,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         intrinsics.push_back(K_p);
     }
 
+    cout << "\tRendering depth maps into reference view..." << endl;
     // TODO: Render all depth and confidence maps into reference view
     vector<Mat> d_refs;
     vector<Mat> c_refs;
@@ -782,34 +786,41 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                     continue;
                 }
 
+                //cout << "Img #" << d << "(" << r << "," << c << ") -> (" << r_p << "," << c_p << "): " << depth << " | " << conf << endl;
                 d_ref.at<float>(r_p,c_p) = depth;
                 c_ref.at<float>(r_p,c_p) = conf;
 
             }
         }
-        write_map(d_ref, "dmap3_4.png");
-        exit(0);
         d_refs.push_back(d_ref);
         c_refs.push_back(c_ref);
+
+        write_map(d_ref, "d_ref_"+to_string(d)+".png", 3);
+        write_map(c_ref, "c_ref_"+to_string(d)+".png", 3);
     }
     
     // TODO: Fuse depth maps
-    float f = 0.0;
-    float initial_f = 0.0;
-    float C = 0.0;
-    float eps = 1e-3;
+    float f;
+    float initial_f;
+    float C;
+    float eps = 3.5;
     vector<Mat>::const_iterator d_map;
     vector<Mat>::const_iterator c_map;
+    Mat fused_map = Mat::zeros(shape,CV_32F);
+    Mat fused_conf = Mat::zeros(shape,CV_32F);
 
-    // for each pixel:
+    cout << "\tFusing depth maps..." << endl;
     for (int r=0; r<rows; ++r) {
         for (int c=0; c<cols; ++c) {
             // set initial depth estimate and confidence value
+            f = 0.0;
+            initial_f = 0.0;
+            C = 0.0;
+
             d_map = d_refs.begin();
             c_map = c_refs.begin();
 
-            // for each depth map:
-            for (; d_map != depth_maps.end(); ++d_map,++c_map) {
+            for (; d_map != d_refs.end(); ++d_map,++c_map) {
                 if (c_map->at<float>(r,c) > C) {
                     f = d_map->at<float>(r,c);
                     C = c_map->at<float>(r,c);
@@ -818,30 +829,42 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
             initial_f = f;
 
-            d_map = depth_maps.begin();
-            c_map = conf_maps.begin();
+            d_map = d_refs.begin();
+            c_map = c_refs.begin();
 
             // for each depth map:
-            for (; d_map != depth_maps.end(); ++d_map,++c_map) {
+            for (; d_map != d_refs.end(); ++d_map,++c_map) {
+                cout << "initial_f: " << initial_f << endl;
+                cout << "f: " << f << endl;
+                cout << "C: " << C << endl;
+                cout << "d_i: " << d_map->at<float>(r,c) << endl;
+                cout << "c_i: " << c_map->at<float>(r,c) << endl<<endl;
+
                 // if depth is close to initial depth:
                 if (abs(d_map->at<float>(r,c) - initial_f) < eps) {
-                    //f = (f*C + d_ref_i(r,c)*C_ref_i(r,c)) / C + C_ref_i(r,c)
-                    // C = C + C_ref_i(r,c)
+                    f = (f*C + d_map->at<float>(r,c)*c_map->at<float>(r,c)) / (C + c_map->at<float>(r,c));
+                    C += c_map->at<float>(r,c);
                 } 
                 // if depth is too close (occlusion):
                 else if(d_map->at<float>(r,c) < initial_f) {
-                    // C = C - C_ref_i(r,c)
+                    C -= c_map->at<float>(r,c);
                 }
                 // if depth is too large (free space violation):
                 else if(d_map->at<float>(r,c) > initial_f) {
-                    // C = C - C_i(P(X))
+                    C -= c_map->at<float>(r,c);
+                    // C -= C_i(P(X))
                 }
             }
             if (C < 0.0) {
                 C = -1.0;
             }
+            fused_map.at<float>(r,c) = f;
+            fused_conf.at<float>(r,c) = C;
         }
     }
+
+    write_map(fused_map, "depth_fused.png", 3);
+    write_map(fused_conf, "conf_fused.png", 3);
             
     // TODO: Fill in holes (-1 values) in depth map:
     // for each pixel:
@@ -855,16 +878,16 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
 int main(int argc, char **argv) {
     
-    if (argc != 4) {
-        fprintf(stderr, "Error: usage %s <0 if camera centers / 1 if translation vectors> <path-to-images> <sigma>\n", argv[0]);
+    if (argc != 6) {
+        fprintf(stderr, "Error: usage %s <0 if camera centers / 1 if translation vectors> <path-to-images> <down-sample-scale> <depth-increments> <sad-window-size>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
     bool dtu = atoi(argv[1]);
     char *data_path = argv[2];
-    float sigma = atof(argv[3]);
-    int depth_count = 5;
-    int window_size = 3;
+    float scale = atof(argv[3]);
+    int depth_count = atoi(argv[4]);
+    int window_size = atoi(argv[5]);
     size_t str_len = strlen(data_path);
 
     if (data_path[str_len-1] != '/') {
@@ -885,6 +908,8 @@ int main(int argc, char **argv) {
     printf("Loading data...\n");
     load_data(&images, &intrinsics, &rotations, &translations, &P, &bounds, data_path, dtu);
 
+    down_sample(&images, &intrinsics, scale);
+
     int img_count = images.size();
 
     // build depth map
@@ -897,23 +922,23 @@ int main(int argc, char **argv) {
         Mat depth_map = plane_sweep(cost_volume, images, intrinsics, rotations, translations, P, bounds, i, depth_count, window_size, dtu);
 
         Mat conf_map = Mat::zeros(shape, CV_32F);
-        build_conf_map(depth_map, conf_map, cost_volume, shape, depth_count, sigma);
+        build_conf_map(depth_map, conf_map, cost_volume, shape, depth_count);
 
         confidence_maps.push_back(conf_map);
         depth_maps.push_back(depth_map);
 
         // write depth image
-        write_map(depth_map, "depth_" + to_string(i) + ".png");
+        write_map(depth_map, "depth_" + to_string(i) + ".png", scale);
 
         // write confidence image
-        write_map(conf_map, "conf_" + to_string(i) + ".png");
+        write_map(conf_map, "conf_" + to_string(i) + ".png", scale);
     }
 
     int depth_map_count = depth_maps.size();
 
     //stability_fusion(depth_maps, confidence_maps);
     for (int i=1; i<depth_map_count-1; ++i) {
-        printf("Running confidence-based fusion for depth map %d/%d...\n",i,img_count-2);
+        printf("Running confidence-based fusion for depth map %d/%d...\n",i,depth_map_count-2);
         confidence_fusion(depth_maps, confidence_maps, intrinsics, rotations, translations, bounds, i, depth_count, shape, dtu);
     }
 

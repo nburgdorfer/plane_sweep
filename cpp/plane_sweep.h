@@ -17,16 +17,56 @@ inline bool comp(char *a, char *b) {
     return ret_val;
 }
 
+// down-sample images
+void down_sample(vector<Mat> *images, vector<Mat> *intrinsics, const int scale) {
+    if (scale <= 0) {
+        return;
+    }
+    Size size = (*images)[0].size();
+
+    vector<Mat>::iterator img(images->begin());
+    vector<Mat>::iterator k(intrinsics->begin());
+
+    for (; img != images->end(); ++img,++k) {
+        for (int i = 0; i < scale; ++i) {
+            Mat temp_img = Mat::zeros(size, CV_32F);
+
+            pyrDown(*img,temp_img);
+            *img = temp_img;
+        }
+
+        k->at<float>(0,0) = k->at<float>(0,0)/(scale*2);
+        k->at<float>(1,1) = k->at<float>(1,1)/(scale*2);
+        k->at<float>(0,2) = k->at<float>(0,2)/(scale*2);
+        k->at<float>(1,2) = k->at<float>(1,2)/(scale*2);
+    }
+}
+
+// up-sample images (used for writing images)
+Mat up_sample(const Mat *image, const int scale) {
+    Size size = image->size();
+    Mat enlarged_img = *image;
+
+    for (int i = 0; i < scale; ++i) {
+        Mat temp_img = Mat::zeros(size, CV_32F);
+        pyrUp(enlarged_img,temp_img);
+        enlarged_img = temp_img;
+    }
+
+    return enlarged_img;
+}
+
 // Image writing utility (scales to [0,255])
-void write_map(const Mat map, string filename) {
+void write_map(const Mat map, string filename, const int scale) {
+    Mat scaled_map = up_sample(&map,scale);
     double max;
     double min;
     Point min_loc;
     Point max_loc;
-    minMaxLoc(map, &min, &max, &min_loc, &max_loc);
-    Mat img_map = map-min;
-    img_map = (img_map)*(255/(max));
-    imwrite(filename, img_map);
+    minMaxLoc(scaled_map, &min, &max, &min_loc, &max_loc);
+    scaled_map = scaled_map-min;
+    scaled_map = (scaled_map)*(255/(max));
+    imwrite(filename, scaled_map);
 }
 
 // Data loading functions
