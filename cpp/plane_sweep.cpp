@@ -773,7 +773,8 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                 x_1.at<float>(2,0) = 1;
                 x_1.at<float>(3,0) = 1/depth_maps[d].at<float>(r,c);
 
-                Mat x_2 = intrinsics[index]*extrinsics[index]*extrinsics[d].inv()*intrinsics[d].inv() * x_1;
+                //Mat x_2 = intrinsics[index]*extrinsics[index]*extrinsics[d].inv()*intrinsics[d].inv() * x_1;
+                Mat x_2 = intrinsics[index]*intrinsics[d].inv() * x_1;
                 x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                 x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
                 x_2.at<float>(2,0) = x_2.at<float>(2,0)/x_2.at<float>(2,0);
@@ -803,7 +804,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     float f;
     float initial_f;
     float C;
-    float eps = 3.5;
+    float eps = 1.5;
     vector<Mat>::const_iterator d_map;
     vector<Mat>::const_iterator c_map;
     Mat fused_map = Mat::zeros(shape,CV_32F);
@@ -834,11 +835,6 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
             // for each depth map:
             for (; d_map != d_refs.end(); ++d_map,++c_map) {
-                cout << "initial_f: " << initial_f << endl;
-                cout << "f: " << f << endl;
-                cout << "C: " << C << endl;
-                cout << "d_i: " << d_map->at<float>(r,c) << endl;
-                cout << "c_i: " << c_map->at<float>(r,c) << endl<<endl;
 
                 // if depth is close to initial depth:
                 if (abs(d_map->at<float>(r,c) - initial_f) < eps) {
