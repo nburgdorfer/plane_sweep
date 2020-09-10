@@ -508,6 +508,7 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
     float z_curr = min_dist;
     for (int d=0; d<depth_count; ++d) {
         vector<Mat> img_homogs;
+
         for (int i=0; i<img_count; ++i) {
             if (index == i) {
                 continue;
@@ -561,15 +562,18 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
     int num_matches;
 
     cout << "\tBuilding depth map..." << endl;
-    for (int y=offset; y<shape.height-offset; ++y) {
-        for (int x=offset; x<shape.width-offset; ++x) {
-            for (float d=0,z_curr=min_dist; d<depth_count; ++d,z_curr+=interval) {
+#pragma omp parallel num_threads(24) private(cost,num_matches)
+{
+    #pragma omp for collapse(2) 
+    for (int y=offset; y<(shape.height-offset); ++y) {
+        for (int x=offset; x<(shape.width-offset); ++x) {
+            float z_curr = min_dist;
+            for (int d=0; d<depth_count; ++d) {
                 cost = 0;
                 num_matches = 0;
-                
-                for (int i=0,ind=0; i<img_count; ++i,++ind) {
+                int ind = 0;
+                for (int i=0; i<img_count; ++i) {
                     if (index == i) {
-                        ind--;
                         continue;
                     }
                     
@@ -579,6 +583,8 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
                     x_1.at<float>(1,0) = y;
                     x_1.at<float>(2,0) = 1;
 
+                    //cout << "d: " << d << "\nind: " << ind << endl;
+                    //cout << "homogs[d][ind]: " << homogs[d][ind] << endl << endl;
                     Mat x_2 = homogs[d][ind]*x_1;
                     x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                     x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
@@ -604,20 +610,24 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
                     s = sum(diff);
 
                     cost += sqrt((s[0]*s[0]) + (s[1]*s[1]) + (s[2]*s[2]));
+                    ++ind;
                 }
 
                 if(num_matches > 0) {
                     long ind = static_cast<long>(y*shape.width*depth_count) + static_cast<long>(x*depth_count) + static_cast<long>(d);
                     cost_volume[ind] = cost/num_matches;
                 }
+
+                z_curr+=interval;
             }
         }
     }
+} //omp parallel
 
     // build depth map
     float min_cost;
     int best_depth;
-    long ind;
+    long i;
 
     for (int y=offset; y<shape.height-offset; ++y) {
         for (int x=offset; x<shape.width-offset; ++x) {
@@ -625,9 +635,9 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
             best_depth = 0;
 
             for (float d=0; d<depth_count; ++d) {
-                ind = static_cast<long>(y*shape.width*depth_count) + static_cast<long>(x*depth_count) + static_cast<long>(d);
-                if ((cost_volume[ind] >= 0) && (cost_volume[ind] < min_cost)) {
-                    min_cost = cost_volume[ind];
+                i = static_cast<long>(y*shape.width*depth_count) + static_cast<long>(x*depth_count) + static_cast<long>(d);
+                if ((cost_volume[i] >= 0) && (cost_volume[i] < min_cost)) {
+                    min_cost = cost_volume[i];
                     best_depth = d;
                 }
             }
@@ -773,8 +783,8 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                 x_1.at<float>(2,0) = 1;
                 x_1.at<float>(3,0) = 1/depth_maps[d].at<float>(r,c);
 
-                //Mat x_2 = intrinsics[index]*extrinsics[index]*extrinsics[d].inv()*intrinsics[d].inv() * x_1;
-                Mat x_2 = intrinsics[index]*intrinsics[d].inv() * x_1;
+                Mat x_2 = intrinsics[index]*extrinsics[index]*extrinsics[d].inv()*intrinsics[d].inv() * x_1;
+                //Mat x_2 = intrinsics[index]*intrinsics[d].inv() * x_1;
                 x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                 x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
                 x_2.at<float>(2,0) = x_2.at<float>(2,0)/x_2.at<float>(2,0);
