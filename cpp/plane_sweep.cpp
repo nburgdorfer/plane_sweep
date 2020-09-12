@@ -727,20 +727,20 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     cout << "\tPre-Computing Intrinsics/Extrinsics..." << endl;
     // pre-compute intrinsics/extrinsics
     for (int i=1; i<img_count-1; ++i) {
-        Mat M;
+        Mat P;
         // check to see if its a dtu dataset
         if (dtu) {
-            M.push_back(R[i].t());
-            M.push_back(t[i].t());
+            P.push_back(R[i].t());
+            P.push_back(t[i].t());
         } else {
-            M.push_back(R[i]);
-            M.push_back((-R[i].t()*t[i]).t());
+            P.push_back(R[i]);
+            P.push_back((-R[i].t()*t[i]).t());
         }
-        M = M.t();
+        P = P.t();
         Mat temp1;
         temp1.push_back(Mat::zeros(3,1,CV_32F));
         temp1.push_back(Mat::ones(1,1,CV_32F));
-        M.push_back(temp1.t());
+        P.push_back(temp1.t());
 
         Mat K_p;
         K_p.push_back(K[i].t());
@@ -752,7 +752,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         temp2.push_back(Mat::ones(1,1,CV_32F));
         K_p.push_back(temp2.t());
 
-        extrinsics.push_back(M);
+        extrinsics.push_back(P);
         intrinsics.push_back(K_p);
     }
 
@@ -783,8 +783,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                 x_1.at<float>(2,0) = 1;
                 x_1.at<float>(3,0) = 1/depth_maps[d].at<float>(r,c);
 
-                Mat x_2 = intrinsics[index]*extrinsics[index]*extrinsics[d].inv()*intrinsics[d].inv() * x_1;
-                //Mat x_2 = intrinsics[index]*intrinsics[d].inv() * x_1;
+                Mat x_2 = intrinsics[index] * extrinsics[index] * extrinsics[d].inv() * intrinsics[d].inv() * depth_maps[d].at<float>(r,c) * x_1;
                 x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                 x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
                 x_2.at<float>(2,0) = x_2.at<float>(2,0)/x_2.at<float>(2,0);
@@ -848,7 +847,11 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
                 // if depth is close to initial depth:
                 if (abs(d_map->at<float>(r,c) - initial_f) < eps) {
-                    f = (f*C + d_map->at<float>(r,c)*c_map->at<float>(r,c)) / (C + c_map->at<float>(r,c));
+                    if((C + c_map->at<float>(r,c)) == 0) {
+                        f = 0;
+                    } else {
+                        f = (f*C + d_map->at<float>(r,c)*c_map->at<float>(r,c)) / (C + c_map->at<float>(r,c));
+                    }
                     C += c_map->at<float>(r,c);
                 } 
                 // if depth is too close (occlusion):
