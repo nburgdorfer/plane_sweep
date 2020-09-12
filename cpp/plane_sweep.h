@@ -65,7 +65,7 @@ void write_map(const Mat map, string filename, const int scale) {
     Point max_loc;
     minMaxLoc(scaled_map, &min, &max, &min_loc, &max_loc);
     scaled_map = scaled_map-min;
-    scaled_map = (scaled_map)*(255/(max));
+    scaled_map = (scaled_map)*(128/(max));
     imwrite(filename, scaled_map);
 }
 

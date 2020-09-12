@@ -699,6 +699,28 @@ void build_conf_map(const Mat &depth_map, Mat &conf_map, const vector<float> &co
     }
 }
 
+float med_filt(const Mat &patch, int filter_width, int num_inliers) {
+    float sum = 0.0;
+    int inliers = 0;
+
+    for (int r=0; r<filter_width; ++r) {
+        for (int c=0; c<filter_width; ++c) {
+            if (patch.at<float>(r,c) >= 0) {
+                sum += patch.at<float>(r,c);
+                ++inliers;
+            }
+        }
+    }
+
+    if (inliers < num_inliers) {
+        sum = -1.0;
+    } else {
+        sum /= inliers;
+    }
+
+    return sum;
+}
+
 /*
  * @brief Performs depth map fusion using the stability-based notion of a depth estimate
  *
@@ -717,7 +739,7 @@ void stability_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_map
  * @param conf_maps - The container holding the confidence maps needed for the fusion process
  *
  */
-void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, const int index, const int depth_count, const Size shape, const bool dtu){
+void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, const int index, const int depth_count, const Size shape, const bool dtu, int window_size){
     int img_count = K.size();
     int depth_map_count = depth_maps.size();
 
@@ -737,23 +759,9 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
             P.push_back((-R[i].t()*t[i]).t());
         }
         P = P.t();
-        Mat temp1;
-        temp1.push_back(Mat::zeros(3,1,CV_32F));
-        temp1.push_back(Mat::ones(1,1,CV_32F));
-        P.push_back(temp1.t());
-
-        Mat K_p;
-        K_p.push_back(K[i].t());
-        K_p.push_back(Mat::zeros(1,3,CV_32F));
-
-        K_p = K_p.t();
-        Mat temp2;
-        temp2.push_back(Mat::zeros(3,1,CV_32F));
-        temp2.push_back(Mat::ones(1,1,CV_32F));
-        K_p.push_back(temp2.t());
 
         extrinsics.push_back(P);
-        intrinsics.push_back(K_p);
+        intrinsics.push_back(K[i]);
     }
 
     cout << "\tRendering depth maps into reference view..." << endl;
@@ -777,17 +785,24 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                 float conf = conf_maps[d].at<float>(r,c);
 
                 // compute corresponding (x,y) locations
-                Mat x_1(4,1,CV_32F);
+                Mat x_1(3,1,CV_32F);
                 x_1.at<float>(0,0) = c;
                 x_1.at<float>(1,0) = r;
                 x_1.at<float>(2,0) = 1;
-                x_1.at<float>(3,0) = 1/depth_maps[d].at<float>(r,c);
 
-                Mat x_2 = intrinsics[index] * extrinsics[index] * extrinsics[d].inv() * intrinsics[d].inv() * depth_maps[d].at<float>(r,c) * x_1;
+                // take pseudo-inverse of extrinsics matrics for target image
+                Mat P_inv;
+                invert(extrinsics[d],P_inv,DECOMP_SVD);
+
+                // find 3D world coord of back projection
+                Mat X_world = P_inv * intrinsics[d].inv() * (depth_maps[d].at<float>(r,c) * x_1);
+
+                // find pixel location in reference image
+                Mat x_2 = intrinsics[index] * extrinsics[index] * X_world;
+
                 x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                 x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
                 x_2.at<float>(2,0) = x_2.at<float>(2,0)/x_2.at<float>(2,0);
-                x_2.at<float>(3,0) = x_2.at<float>(3,0)/x_2.at<float>(2,0);
 
                 int c_p = (int) floor(x_2.at<float>(0,0));
                 int r_p = (int) floor(x_2.at<float>(1,0));
@@ -808,6 +823,8 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         write_map(d_ref, "d_ref_"+to_string(d)+".png", 3);
         write_map(c_ref, "c_ref_"+to_string(d)+".png", 3);
     }
+    d_refs.push_back(depth_maps[index]);
+    c_refs.push_back(conf_maps[index]);
     
     // TODO: Fuse depth maps
     float f;
@@ -864,7 +881,9 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                     // C -= C_i(P(X))
                 }
             }
-            if (C < 0.0) {
+
+            if (C <= 0.0) {
+                f = -1.0;
                 C = -1.0;
             }
             fused_map.at<float>(r,c) = f;
@@ -872,17 +891,31 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         }
     }
 
+    int filter_width = 5;
+    int offset = (filter_width-1)/2;
+    int num_inliers = 10;
+
+    // Fill in holes (-1 values) in depth map
+    for (int r=offset; r<rows-offset; ++r) {
+        for (int c=offset; c<cols-offset; ++c) {
+            if (fused_map.at<float>(r,c) < 0.0){
+                cout << "Filling hole at (" << r << "," << c << ")..." << endl;
+                fused_map.at<float>(r,c) = med_filt(fused_map(Rect(c-offset,r-offset,filter_width,filter_width)), filter_width, num_inliers);
+            }
+        }
+    }
+
+    // Smooth out inliers
+    for (int r=offset; r<rows-(offset+1); ++r) {
+        for (int c=offset; c<cols-(offset+1); ++c) {
+            if (fused_map.at<float>(r,c) != -1){
+                fused_map.at<float>(r,c) = med_filt(fused_map(Rect(c-offset,r-offset,filter_width,filter_width)), filter_width, num_inliers);
+            }
+        }
+    }
+
     write_map(fused_map, "depth_fused.png", 3);
     write_map(fused_conf, "conf_fused.png", 3);
-            
-    // TODO: Fill in holes (-1 values) in depth map:
-    // for each pixel:
-        // if pixel value == -1:
-            // perform median filter using only inliers (non -1 valued pixels) with window size 'w x w'
-    // TODO: Smooth out inliers:
-        // for each pixel:
-            //  if pixel value >= 0:
-               // perform median filter using only inliers with small window size 'w_s x w_s'
 }
 
 int main(int argc, char **argv) {
@@ -948,7 +981,7 @@ int main(int argc, char **argv) {
     //stability_fusion(depth_maps, confidence_maps);
     for (int i=1; i<depth_map_count-1; ++i) {
         printf("Running confidence-based fusion for depth map %d/%d...\n",i,depth_map_count-2);
-        confidence_fusion(depth_maps, confidence_maps, intrinsics, rotations, translations, bounds, i, depth_count, shape, dtu);
+        confidence_fusion(depth_maps, confidence_maps, intrinsics, rotations, translations, bounds, i, depth_count, shape, dtu, window_size);
     }
 
     return EXIT_SUCCESS;
