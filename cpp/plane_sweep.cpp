@@ -702,6 +702,7 @@ void build_conf_map(const Mat &depth_map, Mat &conf_map, const vector<float> &co
 float med_filt(const Mat &patch, int filter_width, int num_inliers) {
     float sum = 0.0;
     int inliers = 0;
+    float initial_val = patch.at<float>((filter_width-1)/2,(filter_width-1)/2);
 
     for (int r=0; r<filter_width; ++r) {
         for (int c=0; c<filter_width; ++c) {
@@ -713,7 +714,7 @@ float med_filt(const Mat &patch, int filter_width, int num_inliers) {
     }
 
     if (inliers < num_inliers) {
-        sum = -1.0;
+        sum = initial_val;
     } else {
         sum /= inliers;
     }
@@ -739,7 +740,7 @@ void stability_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_map
  * @param conf_maps - The container holding the confidence maps needed for the fusion process
  *
  */
-void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, const int index, const int depth_count, const Size shape, const bool dtu, int window_size){
+void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, const int index, const int depth_count, const Size shape, const bool dtu, int window_size, int scale){
     int img_count = K.size();
     int depth_map_count = depth_maps.size();
 
@@ -779,6 +780,9 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         Mat d_ref = Mat::zeros(shape, CV_32F);
         Mat c_ref = Mat::zeros(shape, CV_32F);
 
+#pragma omp parallel num_threads(24)
+{
+        #pragma omp for collapse(2) 
         for (int r=0; r<rows; ++r) {
             for (int c=0; c<cols; ++c) {
                 float depth = depth_maps[d].at<float>(r,c);
@@ -811,17 +815,18 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                     continue;
                 }
 
-                //cout << "Img #" << d << "(" << r << "," << c << ") -> (" << r_p << "," << c_p << "): " << depth << " | " << conf << endl;
                 d_ref.at<float>(r_p,c_p) = depth;
                 c_ref.at<float>(r_p,c_p) = conf;
 
             }
         }
+} //omp parallel
+
         d_refs.push_back(d_ref);
         c_refs.push_back(c_ref);
 
-        write_map(d_ref, "d_ref_"+to_string(d)+".png", 3);
-        write_map(c_ref, "c_ref_"+to_string(d)+".png", 3);
+        write_map(d_ref, "d_ref_"+to_string(d)+".png", scale);
+        write_map(c_ref, "c_ref_"+to_string(d)+".png", scale);
     }
     d_refs.push_back(depth_maps[index]);
     c_refs.push_back(conf_maps[index]);
@@ -891,31 +896,34 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         }
     }
 
-    int filter_width = 5;
-    int offset = (filter_width-1)/2;
-    int num_inliers = 10;
+    int w = 9;
+    int w_offset = (w-1)/2;
+    int w_inliers = (w*w)/2;
+
+    int w_s = 5;
+    int w_s_offset = (w_s-1)/2;
+    int w_s_inliers = (w_s*w_s)/2;
 
     // Fill in holes (-1 values) in depth map
-    for (int r=offset; r<rows-offset; ++r) {
-        for (int c=offset; c<cols-offset; ++c) {
+    for (int r=w_offset; r<rows-w_offset; ++r) {
+        for (int c=w_offset; c<cols-w_offset; ++c) {
             if (fused_map.at<float>(r,c) < 0.0){
-                cout << "Filling hole at (" << r << "," << c << ")..." << endl;
-                fused_map.at<float>(r,c) = med_filt(fused_map(Rect(c-offset,r-offset,filter_width,filter_width)), filter_width, num_inliers);
+                fused_map.at<float>(r,c) = med_filt(fused_map(Rect(c-w_offset,r-w_offset,w,w)), w, w_inliers);
             }
         }
     }
 
     // Smooth out inliers
-    for (int r=offset; r<rows-(offset+1); ++r) {
-        for (int c=offset; c<cols-(offset+1); ++c) {
+    for (int r=w_s_offset; r<rows-w_s_offset; ++r) {
+        for (int c=w_s_offset; c<cols-w_s_offset; ++c) {
             if (fused_map.at<float>(r,c) != -1){
-                fused_map.at<float>(r,c) = med_filt(fused_map(Rect(c-offset,r-offset,filter_width,filter_width)), filter_width, num_inliers);
+                fused_map.at<float>(r,c) = med_filt(fused_map(Rect(c-w_s_offset,r-w_s_offset,w_s,w_s)), w_s, w_s_inliers);
             }
         }
     }
 
-    write_map(fused_map, "depth_fused.png", 3);
-    write_map(fused_conf, "conf_fused.png", 3);
+    write_map(fused_map, "depth_fused_" + to_string(index) + ".png", scale);
+    write_map(fused_conf, "conf_fused_" + to_string(index) + ".png", scale);
 }
 
 int main(int argc, char **argv) {
@@ -981,7 +989,7 @@ int main(int argc, char **argv) {
     //stability_fusion(depth_maps, confidence_maps);
     for (int i=1; i<depth_map_count-1; ++i) {
         printf("Running confidence-based fusion for depth map %d/%d...\n",i,depth_map_count-2);
-        confidence_fusion(depth_maps, confidence_maps, intrinsics, rotations, translations, bounds, i, depth_count, shape, dtu, window_size);
+        confidence_fusion(depth_maps, confidence_maps, intrinsics, rotations, translations, bounds, i, depth_count, shape, dtu, window_size, scale);
     }
 
     return EXIT_SUCCESS;
