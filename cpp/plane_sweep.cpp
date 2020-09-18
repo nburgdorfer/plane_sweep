@@ -10,6 +10,7 @@
 #include <iostream>
 #include <iomanip>
 #include <omp.h>
+#include <fstream>
 
 #include "plane_sweep.h"
 
@@ -187,84 +188,6 @@ void load_camera_params(vector<Mat> *intrinsics, vector<Mat> *rotations, vector<
     }
 }
 
-
-/*
- * @brief Loads in the projection matrices
- *
- * @param P - The container to be populated with the projection matrices for the images
- * @param data_path - The relative path to the base directory for the data
- *
- */
-void load_p_matrices(vector<Mat> *P, char *data_path) {
-    DIR *dir;
-    struct dirent *ent;
-    char p_path[256];
-    vector<char*> p_files;
-
-    FILE *fp;
-    char *line=NULL;
-    size_t n = 128;
-    ssize_t bytes_read;
-    char *ptr = NULL;
-
-    // load P
-    strcpy(p_path,data_path);
-    strcat(p_path,"p/");
-
-    if((dir = opendir(p_path)) == NULL) {
-        fprintf(stderr,"Error: Cannot open directory %s.\n",p_path);
-        exit(EXIT_FAILURE);
-    }
-
-    while((ent = readdir(dir)) != NULL) {
-        if ((ent->d_name[0] != '.') && (ent->d_type != DT_DIR)) {
-            char *p_filename = (char*) malloc(sizeof(char) * 256);
-
-            strcpy(p_filename,p_path);
-            strcat(p_filename,ent->d_name);
-
-            p_files.push_back(p_filename);
-        }
-    }
-
-    // sort files by name
-    sort(p_files.begin(), p_files.end(), comp);
-
-    int p_count = p_files.size();
-
-    for (int i=0; i<p_count; ++i) {
-        if ((fp = fopen(p_files[i],"r")) == NULL) {
-            fprintf(stderr,"Error: could not open file %s.\n", p_files[i]);
-            exit(EXIT_FAILURE);
-        }
-
-        // load p matrices
-        Mat p_mat(3,4,CV_32F);
-        for (int j=0; j<3; ++j) {
-            if ((bytes_read = getline(&line, &n, fp)) == -1) {
-                fprintf(stderr, "Error: could not read line from %s.\n",p_files[i]);
-            }
-
-            ptr = strstr(line,"\n");
-            strncpy(ptr,"\0",1);
-            
-            char *token = strtok(line," ");
-            int ind = 0;
-            while (token != NULL) {
-                p_mat.at<float>(j,ind) = atof(token);
-
-                token = strtok(NULL," ");
-                ind++;
-            }
-        }
-
-        P->push_back(p_mat);
-
-        fclose(fp);
-    }
-}
-
-
 /*
  * @brief Loads in the boundary information based on the DTU dataset
  *
@@ -433,10 +356,9 @@ void load_strecha_bounds(vector<Mat> *bounds, char *data_path) {
  * @param dtu - Flag specifying whether or not the data is a DTU dataset
  *
  */
-void load_data(vector<Mat> *images, vector<Mat> *intrinsics, vector<Mat> *rotations, vector<Mat> *translations, vector<Mat> *P, vector<Mat> *bounds, char *data_path, bool dtu) {
+void load_data(vector<Mat> *images, vector<Mat> *intrinsics, vector<Mat> *rotations, vector<Mat> *translations, vector<Mat> *bounds, char *data_path, bool dtu) {
     load_images(images, data_path);
     load_camera_params(intrinsics, rotations, translations, data_path);
-    load_p_matrices(P, data_path);
 
     if (dtu) {
         load_dtu_bounds(bounds, data_path);
@@ -461,7 +383,7 @@ void load_data(vector<Mat> *images, vector<Mat> *intrinsics, vector<Mat> *rotati
  * @param dtu - Flag specifying whether or not the data is a DTU dataset
  *
  */
-Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &P, const vector<Mat> &bounds, int index, int depth_count, int window_size, bool dtu) {
+Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, int index, int depth_count, int window_size, bool dtu) {
 
     Size shape = images[index].size();
     float cost;
@@ -722,6 +644,62 @@ float med_filt(const Mat &patch, int filter_width, int num_inliers) {
     return sum;
 }
 
+void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string filename, vector<int> color) {
+    Size size = depth_map.size();
+
+    int rows = size.height;
+    int cols = size.width;
+
+    int num_vertex = rows*cols;
+
+    ofstream ply_file;
+    ply_file.open(filename);
+    ply_file << "ply\n";
+    ply_file << "format ascii 1.0\n";
+    ply_file << "element vertex " << num_vertex << "\n";
+    ply_file << "property float x\n";
+    ply_file << "property float y\n";
+    ply_file << "property float z\n";
+    ply_file << "property uchar red\n";
+    ply_file << "property uchar green\n";
+    ply_file << "property uchar blue\n";
+    ply_file << "element face 0\n";
+    ply_file << "end_header\n";
+    
+
+    for (int r=0; r<rows; ++r) {
+        for (int c=0; c<cols; ++c) {
+            float depth = depth_map.at<float>(r,c);
+            if (depth == 0) {
+                ply_file << "0 0 0 0 0 0\n";
+                continue;
+            }
+
+            // compute corresponding (x,y) locations
+            Mat x_1(3,1,CV_32F);
+            x_1.at<float>(0,0) = c;
+            x_1.at<float>(1,0) = r;
+            x_1.at<float>(2,0) = 1;
+
+            // take pseudo-inverse of extrinsics matrics for target image
+            Mat P_inv;
+            invert(P,P_inv,DECOMP_SVD);
+
+            // find 3D world coord of back projection
+            Mat X_world = P_inv * K.inv() * (depth * x_1);
+            X_world.at<float>(0,0) = X_world.at<float>(0,0) / X_world.at<float>(0,3);
+            X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
+            X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
+            X_world.at<float>(0,3) = X_world.at<float>(0,3) / X_world.at<float>(0,3);
+
+            ply_file << X_world.at<float>(0,0) << " " << X_world.at<float>(0,1) << " " << X_world.at<float>(0,2) << " " << color[0] << " " << color[1] << " " << color[2] << "\n";
+        }
+    }
+
+    ply_file.close();
+
+}
+
 /*
  * @brief Performs depth map fusion using the stability-based notion of a depth estimate
  *
@@ -741,32 +719,28 @@ void stability_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_map
  *
  */
 void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, const int index, const int depth_count, const Size shape, const bool dtu, int window_size, int scale){
-    int img_count = K.size();
     int depth_map_count = depth_maps.size();
 
-    vector<Mat> extrinsics;
-    vector<Mat> intrinsics;
+    vector<Mat> P;
 
     cout << "\tPre-Computing Intrinsics/Extrinsics..." << endl;
     // pre-compute intrinsics/extrinsics
-    for (int i=1; i<img_count-1; ++i) {
-        Mat P;
+    for (int i=0; i<depth_map_count; ++i) {
+        Mat p;
         // check to see if its a dtu dataset
         if (dtu) {
-            P.push_back(R[i].t());
-            P.push_back(t[i].t());
+            p.push_back(R[i].t());
+            p.push_back(t[i].t());
         } else {
-            P.push_back(R[i]);
-            P.push_back((-R[i].t()*t[i]).t());
+            p.push_back(R[i]);
+            p.push_back((-R[i].t()*t[i]).t());
         }
-        P = P.t();
+        p = p.t();
 
-        extrinsics.push_back(P);
-        intrinsics.push_back(K[i]);
+        P.push_back(p);
     }
 
     cout << "\tRendering depth maps into reference view..." << endl;
-    // TODO: Render all depth and confidence maps into reference view
     vector<Mat> d_refs;
     vector<Mat> c_refs;
     const int rows = shape.height;
@@ -774,6 +748,13 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
     for (int d=0; d < depth_map_count; ++d) {
         if (d==index) {
+            d_refs.push_back(depth_maps[index]);
+            c_refs.push_back(conf_maps[index]);
+
+            // write ply file
+            vector<int> green = {0, 255, 0};
+            write_ply(depth_maps[index], K[index], P[index], "test_ref_" + to_string(index) + ".ply", green);
+
             continue;
         }
 
@@ -796,13 +777,17 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
                 // take pseudo-inverse of extrinsics matrics for target image
                 Mat P_inv;
-                invert(extrinsics[d],P_inv,DECOMP_SVD);
+                invert(P[d],P_inv,DECOMP_SVD);
 
                 // find 3D world coord of back projection
-                Mat X_world = P_inv * intrinsics[d].inv() * (depth_maps[d].at<float>(r,c) * x_1);
+                Mat X_world = P_inv * K[d].inv() * (depth * x_1);
+                X_world.at<float>(0,0) = X_world.at<float>(0,0) / X_world.at<float>(0,3);
+                X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
+                X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
+                X_world.at<float>(0,3) = X_world.at<float>(0,3) / X_world.at<float>(0,3);
 
                 // find pixel location in reference image
-                Mat x_2 = intrinsics[index] * extrinsics[index] * X_world;
+                Mat x_2 = K[index] * P[index] * X_world;
 
                 x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                 x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
@@ -817,10 +802,13 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
                 d_ref.at<float>(r_p,c_p) = depth;
                 c_ref.at<float>(r_p,c_p) = conf;
-
             }
         }
 } //omp parallel
+
+        // write ply file
+        vector<int> red = {255, 0, 0};
+        write_ply(d_ref, K[d], P[d], "test_" + to_string(d) + ".ply", red);
 
         d_refs.push_back(d_ref);
         c_refs.push_back(c_ref);
@@ -828,14 +816,13 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         write_map(d_ref, "d_ref_"+to_string(d)+".png", scale);
         write_map(c_ref, "c_ref_"+to_string(d)+".png", scale);
     }
-    d_refs.push_back(depth_maps[index]);
-    c_refs.push_back(conf_maps[index]);
     
-    // TODO: Fuse depth maps
+    // Fuse depth maps
     float f;
     float initial_f;
     float C;
     float eps = 1.5;
+
     vector<Mat>::const_iterator d_map;
     vector<Mat>::const_iterator c_map;
     Mat fused_map = Mat::zeros(shape,CV_32F);
@@ -946,30 +933,30 @@ int main(int argc, char **argv) {
     
     vector<Mat> images;
     vector<Mat> depth_maps;
-    vector<Mat> intrinsics;
-    vector<Mat> rotations;
-    vector<Mat> translations;
-    vector<Mat> P;
+    vector<Mat> K;
+    vector<Mat> R;
+    vector<Mat> t;
     vector<Mat> bounds;
     vector<Mat> confidence_maps;
     Size shape;
     
-    // load images, K's, R's, t's, P's, bounds
+    // load images, K's, R's, t's, bounds
     printf("Loading data...\n");
-    load_data(&images, &intrinsics, &rotations, &translations, &P, &bounds, data_path, dtu);
+    load_data(&images, &K, &R, &t, &bounds, data_path, dtu);
 
-    down_sample(&images, &intrinsics, scale);
+    down_sample(&images, &K, scale);
 
     int img_count = images.size();
+    int offset = 1;
 
     // build depth map
-    for (int i=1; i<img_count-1; ++i) {
+    for (int i=offset; i<img_count-offset; ++i) {
         printf("Computing depth map for image %d/%d...\n",i,img_count-2);
 
         shape = images[i].size();
         vector<float> cost_volume(shape.width*shape.height*depth_count);
 
-        Mat depth_map = plane_sweep(cost_volume, images, intrinsics, rotations, translations, P, bounds, i, depth_count, window_size, dtu);
+        Mat depth_map = plane_sweep(cost_volume, images, K, R, t, bounds, i, depth_count, window_size, dtu);
 
         Mat conf_map = Mat::zeros(shape, CV_32F);
         build_conf_map(depth_map, conf_map, cost_volume, shape, depth_count);
@@ -987,9 +974,15 @@ int main(int argc, char **argv) {
     int depth_map_count = depth_maps.size();
 
     //stability_fusion(depth_maps, confidence_maps);
-    for (int i=1; i<depth_map_count-1; ++i) {
-        printf("Running confidence-based fusion for depth map %d/%d...\n",i,depth_map_count-2);
-        confidence_fusion(depth_maps, confidence_maps, intrinsics, rotations, translations, bounds, i, depth_count, shape, dtu, window_size, scale);
+    for (int i=0; i<depth_map_count; ++i) {
+        printf("Running confidence-based fusion for depth map %d/%d...\n",i+1,depth_map_count);
+        vector<Mat> offset_K(K.begin()+offset, K.end()-offset);
+        vector<Mat> offset_R(R.begin()+offset, R.end()-offset);
+        vector<Mat> offset_t(t.begin()+offset, t.end()-offset);
+        vector<Mat> offset_bounds(bounds.begin()+offset, bounds.end()-offset);
+
+
+        confidence_fusion(depth_maps, confidence_maps, offset_K, offset_R, offset_t, offset_bounds, i, depth_count, shape, dtu, window_size, scale);
     }
 
     return EXIT_SUCCESS;

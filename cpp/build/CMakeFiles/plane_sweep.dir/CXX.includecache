@@ -29,6 +29,8 @@ iomanip
 -
 omp.h
 -
+fstream
+-
 plane_sweep.h
 /home/nathaniel/dev/personal/plane_sweep/cpp/plane_sweep.h
 

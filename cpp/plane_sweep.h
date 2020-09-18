@@ -69,6 +69,8 @@ void write_map(const Mat map, string filename, const int scale) {
     imwrite(filename, scaled_map);
 }
 
+void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string filename, vector<int> color);
+
 // Data loading functions
 void load_images(vector<Mat> *images, char *data_path);
 void load_camera_params(vector<Mat> *intrinsics, vector<Mat> *rotations, vector<Mat> *translations, char *data_path);
