@@ -71,7 +71,7 @@ void load_images(vector<Mat> *images, char *data_path) {
  * @param data_path - The relative path to the base directory for the data
  *
  */
-void load_camera_params(vector<Mat> *intrinsics, vector<Mat> *rotations, vector<Mat> *translations, char *data_path) {
+void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, char *data_path) {
     DIR *dir;
     struct dirent *ent;
     char camera_path[256];
@@ -115,7 +115,7 @@ void load_camera_params(vector<Mat> *intrinsics, vector<Mat> *rotations, vector<
         }
 
         // load K matrix
-        Mat K(3,3,CV_32F);
+        Mat K_i(3,3,CV_32F);
         for (int j=0; j<3; ++j) {
             if ((bytes_read = getline(&line, &n, fp)) == -1) {
                 fprintf(stderr, "Error: could not read line from %s.\n",camera_files[i]);
@@ -127,14 +127,14 @@ void load_camera_params(vector<Mat> *intrinsics, vector<Mat> *rotations, vector<
             char *token = strtok(line," ");
             int ind = 0;
             while (token != NULL) {
-                K.at<float>(j,ind) = atof(token);
+                K_i.at<float>(j,ind) = atof(token);
 
                 token = strtok(NULL," ");
                 ind++;
             }
         }
 
-        intrinsics->push_back(K);
+        K->push_back(K_i);
 
         // throw away line "0 0 0"..... I don't know why it is there...
         // maybe for radial distortion, so unused in this algorithm...
@@ -143,7 +143,7 @@ void load_camera_params(vector<Mat> *intrinsics, vector<Mat> *rotations, vector<
         strncpy(ptr,"\0",1);
 
         // load R matrix
-        Mat R(3,3,CV_32F);
+        Mat R_i(3,3,CV_32F);
         for (int j=0; j<3; ++j) {
             if ((bytes_read = getline(&line, &n, fp)) == -1) {
                 fprintf(stderr, "Error: could not read line from %s.\n",camera_files[i]);
@@ -155,17 +155,17 @@ void load_camera_params(vector<Mat> *intrinsics, vector<Mat> *rotations, vector<
             char *token = strtok(line," ");
             int ind = 0;
             while (token != NULL) {
-                R.at<float>(j,ind) = atof(token);
+                R_i.at<float>(j,ind) = atof(token);
 
                 token = strtok(NULL," ");
                 ind++;
             }
         }
 
-        rotations->push_back(R);
+        R->push_back(R_i);
 
         // load t matrix
-        Mat t(3,1,CV_32F);
+        Mat t_i(3,1,CV_32F);
         if ((bytes_read = getline(&line, &n, fp)) == -1) {
             fprintf(stderr, "Error: could not read line from %s.\n",camera_files[i]);
         }
@@ -176,13 +176,13 @@ void load_camera_params(vector<Mat> *intrinsics, vector<Mat> *rotations, vector<
         char *token = strtok(line," ");
         int ind = 0;
         while (token != NULL) {
-            t.at<float>(ind,0) = atof(token);
+            t_i.at<float>(ind,0) = atof(token);
 
             token = strtok(NULL," ");
             ind++;
         }
 
-        translations->push_back(t);
+        t->push_back(t_i);
 
         fclose(fp);
     }
@@ -356,9 +356,9 @@ void load_strecha_bounds(vector<Mat> *bounds, char *data_path) {
  * @param dtu - Flag specifying whether or not the data is a DTU dataset
  *
  */
-void load_data(vector<Mat> *images, vector<Mat> *intrinsics, vector<Mat> *rotations, vector<Mat> *translations, vector<Mat> *bounds, char *data_path, bool dtu) {
+void load_data(vector<Mat> *images, vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, vector<Mat> *bounds, char *data_path, bool dtu) {
     load_images(images, data_path);
-    load_camera_params(intrinsics, rotations, translations, data_path);
+    load_camera_params(K, R, t, data_path);
 
     if (dtu) {
         load_dtu_bounds(bounds, data_path);
@@ -421,12 +421,8 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
 
     float interval = (max_dist-min_dist)/depth_count;
 
-
     cout << "\tPre-computing homographies..." << endl;
-//#pragma omp parallel num_threads(12) shared(homogs, dtu) private(img_homogs,M1,M2,temp1,temp2,M,H,z_curr)
-//{
     // pre-compute homographies
-    //#pragma omp for
     float z_curr = min_dist;
     for (int d=0; d<depth_count; ++d) {
         vector<Mat> img_homogs;
@@ -568,7 +564,6 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
         }
     }
 
-
     return depth_values;
 }
 
@@ -670,28 +665,31 @@ void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string fi
     for (int r=0; r<rows; ++r) {
         for (int c=0; c<cols; ++c) {
             float depth = depth_map.at<float>(r,c);
+
             if (depth == 0) {
                 ply_file << "0 0 0 0 0 0\n";
                 continue;
             }
 
             // compute corresponding (x,y) locations
-            Mat x_1(3,1,CV_32F);
+            Mat x_1(4,1,CV_32F);
             x_1.at<float>(0,0) = c;
             x_1.at<float>(1,0) = r;
             x_1.at<float>(2,0) = 1;
+            x_1.at<float>(3,0) = 1/depth;
 
             // take pseudo-inverse of extrinsics matrics for target image
             Mat P_inv;
             invert(P,P_inv,DECOMP_SVD);
 
             // find 3D world coord of back projection
-            Mat X_world = P_inv * K.inv() * (depth * x_1);
+            Mat X_world = P_inv * K.inv() * x_1;
+
             X_world.at<float>(0,0) = X_world.at<float>(0,0) / X_world.at<float>(0,3);
             X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
             X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
             X_world.at<float>(0,3) = X_world.at<float>(0,3) / X_world.at<float>(0,3);
-
+            
             ply_file << X_world.at<float>(0,0) << " " << X_world.at<float>(0,1) << " " << X_world.at<float>(0,2) << " " << color[0] << " " << color[1] << " " << color[2] << "\n";
         }
     }
@@ -722,22 +720,42 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     int depth_map_count = depth_maps.size();
 
     vector<Mat> P;
+    vector<Mat> K_aug;
 
     cout << "\tPre-Computing Intrinsics/Extrinsics..." << endl;
     // pre-compute intrinsics/extrinsics
     for (int i=0; i<depth_map_count; ++i) {
-        Mat p;
+        Mat P_i;
         // check to see if its a dtu dataset
         if (dtu) {
-            p.push_back(R[i].t());
-            p.push_back(t[i].t());
+            P_i.push_back(R[i].t());
+            P_i.push_back(t[i].t());
         } else {
-            p.push_back(R[i]);
-            p.push_back((-R[i].t()*t[i]).t());
+            P_i.push_back(R[i]);
+            P_i.push_back((-R[i].t()*t[i]).t());
         }
-        p = p.t();
+        P_i = P_i.t();
+        Mat temp1;
+        temp1.push_back(Mat::zeros(3,1,CV_32F));
+        temp1.push_back(Mat::ones(1,1,CV_32F));
+        P_i.push_back(temp1.t());
 
-        P.push_back(p);
+        P.push_back(P_i);
+
+        Mat K_i;
+        K_i.push_back(K[i].t());
+
+        Mat temp2;
+        temp2.push_back(Mat::zeros(1,3,CV_32F));
+        K_i.push_back(temp2);
+        K_i = K_i.t();
+
+        Mat temp3;
+        temp3.push_back(Mat::zeros(3,1,CV_32F));
+        temp3.push_back(Mat::ones(1,1,CV_32F));
+        K_i.push_back(temp3.t());
+
+        K_aug.push_back(K_i);
     }
 
     cout << "\tRendering depth maps into reference view..." << endl;
@@ -753,7 +771,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
             // write ply file
             vector<int> green = {0, 255, 0};
-            write_ply(depth_maps[index], K[index], P[index], "test_ref_" + to_string(index) + ".ply", green);
+            write_ply(depth_maps[index], K_aug[index], P[index], "test_ref_" + to_string(index+1) + ".ply", green);
 
             continue;
         }
@@ -770,24 +788,25 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                 float conf = conf_maps[d].at<float>(r,c);
 
                 // compute corresponding (x,y) locations
-                Mat x_1(3,1,CV_32F);
+                Mat x_1(4,1,CV_32F);
                 x_1.at<float>(0,0) = c;
                 x_1.at<float>(1,0) = r;
                 x_1.at<float>(2,0) = 1;
+                x_1.at<float>(3,0) = 1/depth;
 
                 // take pseudo-inverse of extrinsics matrics for target image
-                Mat P_inv;
-                invert(P[d],P_inv,DECOMP_SVD);
+                //Mat P_inv;
+                //invert(P[d],P_inv,DECOMP_SVD);
 
                 // find 3D world coord of back projection
-                Mat X_world = P_inv * K[d].inv() * (depth * x_1);
+                Mat X_world = P[d].inv() * K_aug[d].inv() * x_1;
                 X_world.at<float>(0,0) = X_world.at<float>(0,0) / X_world.at<float>(0,3);
                 X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
                 X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
                 X_world.at<float>(0,3) = X_world.at<float>(0,3) / X_world.at<float>(0,3);
 
                 // find pixel location in reference image
-                Mat x_2 = K[index] * P[index] * X_world;
+                Mat x_2 = K_aug[index] * P[index] * X_world;
 
                 x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                 x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
@@ -808,7 +827,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
         // write ply file
         vector<int> red = {255, 0, 0};
-        write_ply(d_ref, K[d], P[d], "test_" + to_string(d) + ".ply", red);
+        write_ply(d_ref, K_aug[d], P[d], "test_" + to_string(d+1) + ".ply", red);
 
         d_refs.push_back(d_ref);
         c_refs.push_back(c_ref);
@@ -883,11 +902,11 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         }
     }
 
-    int w = 9;
+    int w = 11;
     int w_offset = (w-1)/2;
     int w_inliers = (w*w)/2;
 
-    int w_s = 5;
+    int w_s = 9;
     int w_s_offset = (w_s-1)/2;
     int w_s_inliers = (w_s*w_s)/2;
 
@@ -908,6 +927,10 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
             }
         }
     }
+
+    // write ply file
+    vector<int> blue = {0, 0, 255};
+    write_ply(fused_map, K_aug[index], P[index], "test_fused_" + to_string(index+2) + ".ply", blue);
 
     write_map(fused_map, "depth_fused_" + to_string(index) + ".png", scale);
     write_map(fused_conf, "conf_fused_" + to_string(index) + ".png", scale);
@@ -947,11 +970,11 @@ int main(int argc, char **argv) {
     down_sample(&images, &K, scale);
 
     int img_count = images.size();
-    int offset = 1;
+    int offset = 8;
 
     // build depth map
     for (int i=offset; i<img_count-offset; ++i) {
-        printf("Computing depth map for image %d/%d...\n",i,img_count-2);
+        printf("Computing depth map for image %d/%d...\n",(i+1)-offset,img_count-(2*offset));
 
         shape = images[i].size();
         vector<float> cost_volume(shape.width*shape.height*depth_count);
@@ -972,15 +995,15 @@ int main(int argc, char **argv) {
     }
 
     int depth_map_count = depth_maps.size();
+    int fusion_offset = 2;
 
     //stability_fusion(depth_maps, confidence_maps);
-    for (int i=0; i<depth_map_count; ++i) {
-        printf("Running confidence-based fusion for depth map %d/%d...\n",i+1,depth_map_count);
+    for (int i=fusion_offset; i<depth_map_count-fusion_offset; ++i) {
+        printf("Running confidence-based fusion for depth map %d/%d...\n",(i+1)-offset,depth_map_count-(2*fusion_offset));
         vector<Mat> offset_K(K.begin()+offset, K.end()-offset);
         vector<Mat> offset_R(R.begin()+offset, R.end()-offset);
         vector<Mat> offset_t(t.begin()+offset, t.end()-offset);
         vector<Mat> offset_bounds(bounds.begin()+offset, bounds.end()-offset);
-
 
         confidence_fusion(depth_maps, confidence_maps, offset_K, offset_R, offset_t, offset_bounds, i, depth_count, shape, dtu, window_size, scale);
     }
