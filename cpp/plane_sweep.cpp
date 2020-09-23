@@ -391,8 +391,8 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
     int offset = (window_size-1)/2;
 
     vector<vector<Mat>> homogs;
-    Mat depth_map = Mat::zeros(shape,CV_32F);
-    Mat depth_values = Mat::zeros(shape,CV_32F);
+    Mat depth_map = Mat::zeros(shape, CV_32F);
+    Mat depth_values(shape, CV_32F);
     fill(cost_volume.begin(), cost_volume.end(), numeric_limits<float>::max());
 
     // create plane norm
@@ -547,20 +547,20 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
     int best_depth;
     long i;
 
-    for (int y=offset; y<shape.height-offset; ++y) {
-        for (int x=offset; x<shape.width-offset; ++x) {
+    for (int r=offset; r<shape.height-offset; ++r) {
+        for (int c=offset; c<shape.width-offset; ++c) {
             min_cost = numeric_limits<float>::max();
             best_depth = 0;
 
             for (float d=0; d<depth_count; ++d) {
-                i = static_cast<long>(y*shape.width*depth_count) + static_cast<long>(x*depth_count) + static_cast<long>(d);
+                i = static_cast<long>(r*shape.width*depth_count) + static_cast<long>(c*depth_count) + static_cast<long>(d);
                 if ((cost_volume[i] >= 0) && (cost_volume[i] < min_cost)) {
                     min_cost = cost_volume[i];
                     best_depth = d;
                 }
             }
             
-            depth_values.at<float>(y,x) = min_dist + (interval*best_depth);
+            depth_values.at<float>(r,c) = min_dist + (interval*best_depth);
         }
     }
 
@@ -617,6 +617,34 @@ void build_conf_map(const Mat &depth_map, Mat &conf_map, const vector<float> &co
 }
 
 float med_filt(const Mat &patch, int filter_width, int num_inliers) {
+    vector<float> vals;
+    int inliers = 0;
+    float initial_val = patch.at<float>((filter_width-1)/2,(filter_width-1)/2);
+
+    for (int r=0; r<filter_width; ++r) {
+        for (int c=0; c<filter_width; ++c) {
+            if (patch.at<float>(r,c) >= 0) {
+                vals.push_back(patch.at<float>(r,c));
+                ++inliers;
+            }
+        }
+    }
+
+    sort(vals.begin(), vals.end());
+    
+    float med;
+
+    if (inliers < num_inliers) {
+        med = initial_val;
+    } else {
+        med = vals[static_cast<int>(inliers/2)];
+    }
+
+    return med;
+}
+
+
+float mean_filt(const Mat &patch, int filter_width, int num_inliers) {
     float sum = 0.0;
     int inliers = 0;
     float initial_val = patch.at<float>((filter_width-1)/2,(filter_width-1)/2);
@@ -639,13 +667,20 @@ float med_filt(const Mat &patch, int filter_width, int num_inliers) {
     return sum;
 }
 
-void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string filename, vector<int> color) {
+void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string filename, const vector<int> color) {
     Size size = depth_map.size();
 
+    int crop_val = 25;
+
+    // crop 20 pixels
+    Mat cropped = depth_map(Rect(crop_val-1,crop_val-1,size.width-(2*crop_val),size.height-(2*crop_val)));
+
+    size = cropped.size();
     int rows = size.height;
     int cols = size.width;
 
     int num_vertex = rows*cols;
+
 
     ofstream ply_file;
     ply_file.open(filename);
@@ -664,7 +699,7 @@ void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string fi
 
     for (int r=0; r<rows; ++r) {
         for (int c=0; c<cols; ++c) {
-            float depth = depth_map.at<float>(r,c);
+            float depth = cropped.at<float>(r,c);
 
             if (depth == 0) {
                 ply_file << "0 0 0 0 0 0\n";
@@ -718,6 +753,26 @@ void stability_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_map
  */
 void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_maps, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, const int index, const int depth_count, const Size shape, const bool dtu, int window_size, int scale){
     int depth_map_count = depth_maps.size();
+
+    // compute bounds
+    float min_dist;
+    float max_dist;
+
+    // check to see if its a dtu dataset
+    if (dtu) {
+        min_dist = bounds[index].at<float>(0,0);
+        max_dist = bounds[index].at<float>(1,0);
+    } else {
+        Mat n0 = Mat::zeros(3,1,CV_32F);
+        n0.at<float>(2,0) = 1;
+        Mat n1 = R[index]*n0;
+
+        Mat v_min = (bounds[index].row(1)).t() - t[index];
+        Mat v_max = (bounds[index].row(0)).t() - t[index];
+
+        min_dist = v_min.dot(n1);
+        max_dist = v_max.dot(n1);
+    }
 
     vector<Mat> P;
     vector<Mat> K_aug;
@@ -825,15 +880,8 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         }
 } //omp parallel
 
-        // write ply file
-        vector<int> red = {255, 0, 0};
-        write_ply(d_ref, K_aug[d], P[d], "test_" + to_string(d+1) + ".ply", red);
-
         d_refs.push_back(d_ref);
         c_refs.push_back(c_ref);
-
-        write_map(d_ref, "d_ref_"+to_string(d)+".png", scale);
-        write_map(c_ref, "c_ref_"+to_string(d)+".png", scale);
     }
     
     // Fuse depth maps
@@ -855,41 +903,77 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
             initial_f = 0.0;
             C = 0.0;
 
-            d_map = d_refs.begin();
-            c_map = c_refs.begin();
+            int initial_d = 0;
 
-            for (; d_map != d_refs.end(); ++d_map,++c_map) {
-                if (c_map->at<float>(r,c) > C) {
-                    f = d_map->at<float>(r,c);
-                    C = c_map->at<float>(r,c);
+            for (int d=0; d < depth_map_count; ++d) {
+                if (c_refs[d].at<float>(r,c) > C) {
+                    f = d_refs[d].at<float>(r,c);
+                    C = c_refs[d].at<float>(r,c);
+                    initial_d = d;
                 }
             }
 
+            // store the initial depth value
             initial_f = f;
 
-            d_map = d_refs.begin();
-            c_map = c_refs.begin();
-
             // for each depth map:
-            for (; d_map != d_refs.end(); ++d_map,++c_map) {
+            for (int d=0; d < depth_map_count; ++d) {
+                // skip checking for the most confident depth map
+                if (d == initial_d) {
+                    continue;
+                }
+
+                float curr_depth = d_refs[d].at<float>(r,c);
+                float curr_conf = c_refs[d].at<float>(r,c);
 
                 // if depth is close to initial depth:
-                if (abs(d_map->at<float>(r,c) - initial_f) < eps) {
-                    if((C + c_map->at<float>(r,c)) == 0) {
-                        f = 0;
-                    } else {
-                        f = (f*C + d_map->at<float>(r,c)*c_map->at<float>(r,c)) / (C + c_map->at<float>(r,c));
+                if (abs(curr_depth - initial_f) < eps) {
+                    if((C + curr_conf) != 0) {
+                        f = (f*C + curr_depth*curr_conf) / (C + curr_conf);
                     }
-                    C += c_map->at<float>(r,c);
+                    C += curr_conf;
                 } 
                 // if depth is too close (occlusion):
-                else if(d_map->at<float>(r,c) < initial_f) {
-                    C -= c_map->at<float>(r,c);
+                else if(curr_depth < initial_f) {
+                    C -= curr_conf;
                 }
                 // if depth is too large (free space violation):
-                else if(d_map->at<float>(r,c) > initial_f) {
-                    C -= c_map->at<float>(r,c);
+                else if(curr_depth > initial_f) {
+                    //C -= c_map->at<float>(r,c);
                     // C -= C_i(P(X))
+                    // compute corresponding (x,y) locations
+                    Mat x_1(4,1,CV_32F);
+                    x_1.at<float>(0,0) = c;
+                    x_1.at<float>(1,0) = r;
+                    x_1.at<float>(2,0) = 1;
+                    x_1.at<float>(3,0) = 1/initial_f;
+
+                    // take pseudo-inverse of extrinsics matrics for target image
+                    //Mat P_inv;
+                    //invert(P[d],P_inv,DECOMP_SVD);
+
+                    // find 3D world coord of back projection
+                    Mat X_world = P[initial_d].inv() * K_aug[initial_d].inv() * x_1;
+                    X_world.at<float>(0,0) = X_world.at<float>(0,0) / X_world.at<float>(0,3);
+                    X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
+                    X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
+                    X_world.at<float>(0,3) = X_world.at<float>(0,3) / X_world.at<float>(0,3);
+
+                    // find pixel location in reference image
+                    Mat x_2 = K_aug[d] * P[d] * X_world;
+
+                    x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
+                    x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
+                    x_2.at<float>(2,0) = x_2.at<float>(2,0)/x_2.at<float>(2,0);
+
+                    int c_p = (int) floor(x_2.at<float>(0,0));
+                    int r_p = (int) floor(x_2.at<float>(1,0));
+
+                    if (c_p < 0 || c_p >= shape.width || r_p < 0 || r_p >= shape.height) {
+                        continue;
+                    }
+
+                    C -= c_refs[d].at<float>(r_p,c_p);
                 }
             }
 
@@ -902,19 +986,24 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         }
     }
 
-    int w = 11;
+    int w = 5;
     int w_offset = (w-1)/2;
     int w_inliers = (w*w)/2;
 
-    int w_s = 9;
+    int w_s = 3;
     int w_s_offset = (w_s-1)/2;
     int w_s_inliers = (w_s*w_s)/2;
+
+    Mat filled_map = Mat::zeros(shape, CV_32F);
+    Mat smoothed_map = Mat::zeros(shape, CV_32F);
 
     // Fill in holes (-1 values) in depth map
     for (int r=w_offset; r<rows-w_offset; ++r) {
         for (int c=w_offset; c<cols-w_offset; ++c) {
             if (fused_map.at<float>(r,c) < 0.0){
-                fused_map.at<float>(r,c) = med_filt(fused_map(Rect(c-w_offset,r-w_offset,w,w)), w, w_inliers);
+                filled_map.at<float>(r,c) = med_filt(fused_map(Rect(c-w_offset,r-w_offset,w,w)), w, w_inliers);
+            } else {
+                filled_map.at<float>(r,c) = fused_map.at<float>(r,c);
             }
         }
     }
@@ -922,17 +1011,17 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     // Smooth out inliers
     for (int r=w_s_offset; r<rows-w_s_offset; ++r) {
         for (int c=w_s_offset; c<cols-w_s_offset; ++c) {
-            if (fused_map.at<float>(r,c) != -1){
-                fused_map.at<float>(r,c) = med_filt(fused_map(Rect(c-w_s_offset,r-w_s_offset,w_s,w_s)), w_s, w_s_inliers);
+            if (filled_map.at<float>(r,c) != -1){
+                smoothed_map.at<float>(r,c) = med_filt(filled_map(Rect(c-w_s_offset,r-w_s_offset,w_s,w_s)), w_s, w_s_inliers);
             }
         }
     }
 
     // write ply file
-    vector<int> blue = {0, 0, 255};
-    write_ply(fused_map, K_aug[index], P[index], "test_fused_" + to_string(index+2) + ".ply", blue);
+    vector<int> gray = {150, 150, 150};
+    write_ply(smoothed_map, K_aug[index], P[index], "test_fused_" + to_string(index+2) + ".ply", gray);
 
-    write_map(fused_map, "depth_fused_" + to_string(index) + ".png", scale);
+    write_map(smoothed_map, "depth_fused_" + to_string(index) + ".png", scale);
     write_map(fused_conf, "conf_fused_" + to_string(index) + ".png", scale);
 }
 
@@ -970,11 +1059,13 @@ int main(int argc, char **argv) {
     down_sample(&images, &K, scale);
 
     int img_count = images.size();
-    int offset = 8;
+    int offset = 1;
+    int end_offset = img_count-offset;
+    //int end_offset = 8;
 
     // build depth map
-    for (int i=offset; i<img_count-offset; ++i) {
-        printf("Computing depth map for image %d/%d...\n",(i+1)-offset,img_count-(2*offset));
+    for (int i=offset; i<end_offset; ++i) {
+        printf("Computing depth map for image %d/%d...\n",(i+1)-offset,end_offset-offset);
 
         shape = images[i].size();
         vector<float> cost_volume(shape.width*shape.height*depth_count);
@@ -995,15 +1086,15 @@ int main(int argc, char **argv) {
     }
 
     int depth_map_count = depth_maps.size();
-    int fusion_offset = 2;
+    int fusion_offset = 1;
 
     //stability_fusion(depth_maps, confidence_maps);
     for (int i=fusion_offset; i<depth_map_count-fusion_offset; ++i) {
-        printf("Running confidence-based fusion for depth map %d/%d...\n",(i+1)-offset,depth_map_count-(2*fusion_offset));
-        vector<Mat> offset_K(K.begin()+offset, K.end()-offset);
-        vector<Mat> offset_R(R.begin()+offset, R.end()-offset);
-        vector<Mat> offset_t(t.begin()+offset, t.end()-offset);
-        vector<Mat> offset_bounds(bounds.begin()+offset, bounds.end()-offset);
+        printf("Running confidence-based fusion for depth map %d/%d...\n",(i+1)-fusion_offset,depth_map_count-(2*fusion_offset));
+        vector<Mat> offset_K(K.begin()+offset, K.begin()+end_offset);
+        vector<Mat> offset_R(R.begin()+offset, R.begin()+end_offset);
+        vector<Mat> offset_t(t.begin()+offset, t.begin()+end_offset);
+        vector<Mat> offset_bounds(bounds.begin()+offset, bounds.begin()+end_offset);
 
         confidence_fusion(depth_maps, confidence_maps, offset_K, offset_R, offset_t, offset_bounds, i, depth_count, shape, dtu, window_size, scale);
     }

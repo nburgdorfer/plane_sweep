@@ -58,17 +58,25 @@ Mat up_sample(const Mat *image, const int scale) {
 
 // Image writing utility (scales to [0,255])
 void write_map(const Mat map, string filename, const int scale) {
+    // up-sample
     Mat scaled_map = up_sample(&map,scale);
+    Size size = scaled_map.size();
+
+    // crop 20 pixels
+    Mat cropped = scaled_map(Rect(24,24,size.width-50,size.height-50));
+
     double max;
     double min;
     Point min_loc;
     Point max_loc;
-    minMaxLoc(scaled_map, &min, &max, &min_loc, &max_loc);
-    scaled_map = scaled_map-min;
-    scaled_map = (scaled_map)*(128/(max));
-    imwrite(filename, scaled_map);
+    minMaxLoc(cropped, &min, &max, &min_loc, &max_loc);
+    cropped = cropped-min;
+    cropped = (cropped)*(255/(max));
+    imwrite(filename, cropped);
 }
 
+float med_filt(const Mat &patch, int filter_width, int num_inliers);
+float mean_filt(const Mat &patch, int filter_width, int num_inliers);
 void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string filename, vector<int> color);
 
 // Data loading functions
