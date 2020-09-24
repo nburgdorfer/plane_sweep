@@ -169,6 +169,33 @@ plane_sweep.cpp.s:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/plane_sweep.cpp.s
 .PHONY : plane_sweep.cpp.s
 
+util.o: util.cpp.o
+
+.PHONY : util.o
+
+# target to build an object file
+util.cpp.o:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/util.cpp.o
+.PHONY : util.cpp.o
+
+util.i: util.cpp.i
+
+.PHONY : util.i
+
+# target to preprocess a source file
+util.cpp.i:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/util.cpp.i
+.PHONY : util.cpp.i
+
+util.s: util.cpp.s
+
+.PHONY : util.s
+
+# target to generate assembly for a file
+util.cpp.s:
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/util.cpp.s
+.PHONY : util.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -181,6 +208,9 @@ help:
 	@echo "... plane_sweep.o"
 	@echo "... plane_sweep.i"
 	@echo "... plane_sweep.s"
+	@echo "... util.o"
+	@echo "... util.i"
+	@echo "... util.s"
 .PHONY : help
 
 

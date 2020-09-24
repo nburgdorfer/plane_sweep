@@ -13,359 +13,11 @@
 #include <fstream>
 
 #include "plane_sweep.h"
+#include "util.h"
 
 using namespace cv;
 using namespace std;
 
-/*
- * @brief Loads all files found under 'data_path' into the 'images' container
- *
- * @param images - The container to be populated with the loaded image objects
- * @param data_path - The relative path to the base directory for the data
- *
- */
-void load_images(vector<Mat> *images, char *data_path) {
-    DIR *dir;
-    struct dirent *ent;
-    char img_path[256];
-    vector<char*> img_files;
-
-    // load images
-    strcpy(img_path,data_path);
-    strcat(img_path,"images/");
-
-    if((dir = opendir(img_path)) == NULL) {
-        fprintf(stderr,"Error: Cannot open directory %s.\n",img_path);
-        exit(EXIT_FAILURE);
-    }
-
-    while((ent = readdir(dir)) != NULL) {
-        if ((ent->d_name[0] != '.') && (ent->d_type != DT_DIR)) {
-            char *img_filename = (char*) malloc(sizeof(char) * 256);
-
-            strcpy(img_filename,img_path);
-            strcat(img_filename,ent->d_name);
-
-            img_files.push_back(img_filename);
-        }
-    }
-
-    // sort files by name
-    sort(img_files.begin(), img_files.end(), comp);
-
-    int img_count = img_files.size();
-
-    for (int i=0; i<img_count; ++i) {
-        Mat img = imread(img_files[i]);
-        img.convertTo(img,CV_32F);
-        images->push_back(img);
-    }
-}
-
-/*
- * @brief Loads in the camera intrinsics and extrinsics
- *
- * @param intrinsics - The container to be populated with the intrinsic matrices for the images
- * @param rotations - The container to be populated with the rotation matrices for the images
- * @param translations - The container to be populated with the translation vectors for the images
- * @param data_path - The relative path to the base directory for the data
- *
- */
-void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, char *data_path) {
-    DIR *dir;
-    struct dirent *ent;
-    char camera_path[256];
-    vector<char*> camera_files;
-
-    FILE *fp;
-    char *line=NULL;
-    size_t n = 128;
-    ssize_t bytes_read;
-    char *ptr = NULL;
-
-    // load intrinsics
-    strcpy(camera_path,data_path);
-    strcat(camera_path,"cameras/");
-
-    if((dir = opendir(camera_path)) == NULL) {
-        fprintf(stderr,"Error: Cannot open directory %s.\n",camera_path);
-        exit(EXIT_FAILURE);
-    }
-
-    while((ent = readdir(dir)) != NULL) {
-        if ((ent->d_name[0] != '.') && (ent->d_type != DT_DIR)) {
-            char *camera_filename = (char*) malloc(sizeof(char) * 256);
-
-            strcpy(camera_filename,camera_path);
-            strcat(camera_filename,ent->d_name);
-
-            camera_files.push_back(camera_filename);
-        }
-    }
-
-    // sort files by name
-    sort(camera_files.begin(), camera_files.end(), comp);
-
-    int camera_count = camera_files.size();
-
-    for (int i=0; i<camera_count; ++i) {
-        if ((fp = fopen(camera_files[i],"r")) == NULL) {
-            fprintf(stderr,"Error: could not open file %s.\n", camera_files[i]);
-            exit(EXIT_FAILURE);
-        }
-
-        // load K matrix
-        Mat K_i(3,3,CV_32F);
-        for (int j=0; j<3; ++j) {
-            if ((bytes_read = getline(&line, &n, fp)) == -1) {
-                fprintf(stderr, "Error: could not read line from %s.\n",camera_files[i]);
-            }
-
-            ptr = strstr(line,"\n");
-            strncpy(ptr,"\0",1);
-            
-            char *token = strtok(line," ");
-            int ind = 0;
-            while (token != NULL) {
-                K_i.at<float>(j,ind) = atof(token);
-
-                token = strtok(NULL," ");
-                ind++;
-            }
-        }
-
-        K->push_back(K_i);
-
-        // throw away line "0 0 0"..... I don't know why it is there...
-        // maybe for radial distortion, so unused in this algorithm...
-        bytes_read = getline(&line, &n, fp);
-        ptr = strstr(line,"\n");
-        strncpy(ptr,"\0",1);
-
-        // load R matrix
-        Mat R_i(3,3,CV_32F);
-        for (int j=0; j<3; ++j) {
-            if ((bytes_read = getline(&line, &n, fp)) == -1) {
-                fprintf(stderr, "Error: could not read line from %s.\n",camera_files[i]);
-            }
-
-            ptr = strstr(line,"\n");
-            strncpy(ptr,"\0",1);
-            
-            char *token = strtok(line," ");
-            int ind = 0;
-            while (token != NULL) {
-                R_i.at<float>(j,ind) = atof(token);
-
-                token = strtok(NULL," ");
-                ind++;
-            }
-        }
-
-        R->push_back(R_i);
-
-        // load t matrix
-        Mat t_i(3,1,CV_32F);
-        if ((bytes_read = getline(&line, &n, fp)) == -1) {
-            fprintf(stderr, "Error: could not read line from %s.\n",camera_files[i]);
-        }
-
-        ptr = strstr(line,"\n");
-        strncpy(ptr,"\0",1);
-        
-        char *token = strtok(line," ");
-        int ind = 0;
-        while (token != NULL) {
-            t_i.at<float>(ind,0) = atof(token);
-
-            token = strtok(NULL," ");
-            ind++;
-        }
-
-        t->push_back(t_i);
-
-        fclose(fp);
-    }
-}
-
-/*
- * @brief Loads in the boundary information based on the DTU dataset
- *
- * @param bounds - The container to be populated with the bounds information for the images
- * @param data_path - The relative path to the base directory for the data
- *
- */
-void load_dtu_bounds(vector<Mat> *bounds, char *data_path) {
-    DIR *dir;
-    struct dirent *ent;
-    char bounds_path[256];
-    vector<char*> bounds_files;
-
-    FILE *fp;
-    char *line=NULL;
-    size_t n = 128;
-    ssize_t bytes_read;
-    char *ptr = NULL;
-
-    // load bounds
-    strcpy(bounds_path,data_path);
-    strcat(bounds_path,"bounding/");
-
-    if((dir = opendir(bounds_path)) == NULL) {
-        fprintf(stderr,"Error: Cannot open directory %s.\n",bounds_path);
-        exit(EXIT_FAILURE);
-    }
-
-    while((ent = readdir(dir)) != NULL) {
-        if ((ent->d_name[0] != '.') && (ent->d_type != DT_DIR)) {
-            char *bounds_filename = (char*) malloc(sizeof(char) * 256);
-
-            strcpy(bounds_filename,bounds_path);
-            strcat(bounds_filename,ent->d_name);
-
-            bounds_files.push_back(bounds_filename);
-        }
-    }
-
-    // sort files by name
-    sort(bounds_files.begin(), bounds_files.end(), comp);
-
-    int bounds_count = bounds_files.size();
-
-    for (int i=0; i<bounds_count; ++i) {
-        if ((fp = fopen(bounds_files[i],"r")) == NULL) {
-            fprintf(stderr,"Error: could not open file %s.\n", bounds_files[i]);
-            exit(EXIT_FAILURE);
-        }
-
-        // load bounds vectors
-        Mat bound(2,1,CV_32F);
-
-        // get min distance
-        if ((bytes_read = getline(&line, &n, fp)) == -1) {
-            fprintf(stderr, "Error: could not read line from %s.\n",bounds_files[i]);
-        }
-
-        ptr = strstr(line,"\n");
-        strncpy(ptr,"\0",1);
-        bound.at<float>(0,0) = atof(line);
-
-        // get max dist
-        if ((bytes_read = getline(&line, &n, fp)) == -1) {
-            fprintf(stderr, "Error: could not read line from %s.\n",bounds_files[i]);
-        }
-
-        ptr = strstr(line,"\n");
-        strncpy(ptr,"\0",1);
-        bound.at<float>(1,0) = atof(line);
-
-        bounds->push_back(bound);
-
-        fclose(fp);
-    }
-}
-
-
-/*
- * @brief Loads in the boundary information based on the Strecha dataset
- *
- * @param bounds - The container to be populated with the bounds information for the images
- * @param data_path - The relative path to the base directory for the data
- *
- */
-void load_strecha_bounds(vector<Mat> *bounds, char *data_path) {
-    DIR *dir;
-    struct dirent *ent;
-    char bounds_path[256];
-    vector<char*> bounds_files;
-
-    FILE *fp;
-    char *line=NULL;
-    size_t n = 128;
-    ssize_t bytes_read;
-    char *ptr = NULL;
-
-    // load bounds
-    strcpy(bounds_path,data_path);
-    strcat(bounds_path,"bounding/");
-
-    if((dir = opendir(bounds_path)) == NULL) {
-        fprintf(stderr,"Error: Cannot open directory %s.\n",bounds_path);
-        exit(EXIT_FAILURE);
-    }
-
-    while((ent = readdir(dir)) != NULL) {
-        if ((ent->d_name[0] != '.') && (ent->d_type != DT_DIR)) {
-            char *bounds_filename = (char*) malloc(sizeof(char) * 256);
-
-            strcpy(bounds_filename,bounds_path);
-            strcat(bounds_filename,ent->d_name);
-
-            bounds_files.push_back(bounds_filename);
-        }
-    }
-
-    // sort files by name
-    sort(bounds_files.begin(), bounds_files.end(), comp);
-
-    int bounds_count = bounds_files.size();
-
-    for (int i=0; i<bounds_count; ++i) {
-        if ((fp = fopen(bounds_files[i],"r")) == NULL) {
-            fprintf(stderr,"Error: could not open file %s.\n", bounds_files[i]);
-            exit(EXIT_FAILURE);
-        }
-
-        // load bounds vectors
-        Mat bound(2,3,CV_32F);
-        for (int j=0; j<2; ++j) {
-            if ((bytes_read = getline(&line, &n, fp)) == -1) {
-                fprintf(stderr, "Error: could not read line from %s.\n",bounds_files[i]);
-            }
-
-            ptr = strstr(line,"\n");
-            strncpy(ptr,"\0",1);
-            
-            char *token = strtok(line," ");
-            int ind = 0;
-            while (token != NULL) {
-                bound.at<float>(j,ind) = atof(token);
-
-                token = strtok(NULL," ");
-                ind++;
-            }
-        }
-
-        bounds->push_back(bound);
-
-        fclose(fp);
-    }
-}
-
-
-/*
- * @brief Loads in all the data necessary for running plane sweep
- *
- * @param images - The container to be populated with the images
- * @param intrinsics - The container to be populated with the intrinsic matrices for the images
- * @param rotations - The container to be populated with the rotation matrices for the images
- * @param translations - The container to be populated with the translation vectors for the images
- * @param P - The container to be populated with the projection matrices for the images
- * @param bounds - The container to be populated with the bounds information for the images
- * @param data_path - The relative path to the base directory for the data
- * @param dtu - Flag specifying whether or not the data is a DTU dataset
- *
- */
-void load_data(vector<Mat> *images, vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, vector<Mat> *bounds, char *data_path, bool dtu) {
-    load_images(images, data_path);
-    load_camera_params(K, R, t, data_path);
-
-    if (dtu) {
-        load_dtu_bounds(bounds, data_path);
-    } else {
-        load_strecha_bounds(bounds, data_path);
-    }
-}
 
 /*
  * @brief Performs the Plane Sweep stereo algorithm for the given reference and target images
@@ -616,123 +268,6 @@ void build_conf_map(const Mat &depth_map, Mat &conf_map, const vector<float> &co
     }
 }
 
-float med_filt(const Mat &patch, int filter_width, int num_inliers) {
-    vector<float> vals;
-    int inliers = 0;
-    float initial_val = patch.at<float>((filter_width-1)/2,(filter_width-1)/2);
-
-    for (int r=0; r<filter_width; ++r) {
-        for (int c=0; c<filter_width; ++c) {
-            if (patch.at<float>(r,c) >= 0) {
-                vals.push_back(patch.at<float>(r,c));
-                ++inliers;
-            }
-        }
-    }
-
-    sort(vals.begin(), vals.end());
-    
-    float med;
-
-    if (inliers < num_inliers) {
-        med = initial_val;
-    } else {
-        med = vals[static_cast<int>(inliers/2)];
-    }
-
-    return med;
-}
-
-
-float mean_filt(const Mat &patch, int filter_width, int num_inliers) {
-    float sum = 0.0;
-    int inliers = 0;
-    float initial_val = patch.at<float>((filter_width-1)/2,(filter_width-1)/2);
-
-    for (int r=0; r<filter_width; ++r) {
-        for (int c=0; c<filter_width; ++c) {
-            if (patch.at<float>(r,c) >= 0) {
-                sum += patch.at<float>(r,c);
-                ++inliers;
-            }
-        }
-    }
-
-    if (inliers < num_inliers) {
-        sum = initial_val;
-    } else {
-        sum /= inliers;
-    }
-
-    return sum;
-}
-
-void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string filename, const vector<int> color) {
-    Size size = depth_map.size();
-
-    int crop_val = 25;
-
-    // crop 20 pixels
-    Mat cropped = depth_map(Rect(crop_val-1,crop_val-1,size.width-(2*crop_val),size.height-(2*crop_val)));
-
-    size = cropped.size();
-    int rows = size.height;
-    int cols = size.width;
-
-    int num_vertex = rows*cols;
-
-
-    ofstream ply_file;
-    ply_file.open(filename);
-    ply_file << "ply\n";
-    ply_file << "format ascii 1.0\n";
-    ply_file << "element vertex " << num_vertex << "\n";
-    ply_file << "property float x\n";
-    ply_file << "property float y\n";
-    ply_file << "property float z\n";
-    ply_file << "property uchar red\n";
-    ply_file << "property uchar green\n";
-    ply_file << "property uchar blue\n";
-    ply_file << "element face 0\n";
-    ply_file << "end_header\n";
-    
-
-    for (int r=0; r<rows; ++r) {
-        for (int c=0; c<cols; ++c) {
-            float depth = cropped.at<float>(r,c);
-
-            if (depth == 0) {
-                ply_file << "0 0 0 0 0 0\n";
-                continue;
-            }
-
-            // compute corresponding (x,y) locations
-            Mat x_1(4,1,CV_32F);
-            x_1.at<float>(0,0) = c;
-            x_1.at<float>(1,0) = r;
-            x_1.at<float>(2,0) = 1;
-            x_1.at<float>(3,0) = 1/depth;
-
-            // take pseudo-inverse of extrinsics matrics for target image
-            Mat P_inv;
-            invert(P,P_inv,DECOMP_SVD);
-
-            // find 3D world coord of back projection
-            Mat X_world = P_inv * K.inv() * x_1;
-
-            X_world.at<float>(0,0) = X_world.at<float>(0,0) / X_world.at<float>(0,3);
-            X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
-            X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
-            X_world.at<float>(0,3) = X_world.at<float>(0,3) / X_world.at<float>(0,3);
-            
-            ply_file << X_world.at<float>(0,0) << " " << X_world.at<float>(0,1) << " " << X_world.at<float>(0,2) << " " << color[0] << " " << color[1] << " " << color[2] << "\n";
-        }
-    }
-
-    ply_file.close();
-
-}
-
 /*
  * @brief Performs depth map fusion using the stability-based notion of a depth estimate
  *
@@ -775,7 +310,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     }
 
     vector<Mat> P;
-    vector<Mat> K_aug;
+    vector<Mat> K_fr;
 
     cout << "\tPre-Computing Intrinsics/Extrinsics..." << endl;
     // pre-compute intrinsics/extrinsics
@@ -810,7 +345,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
         temp3.push_back(Mat::ones(1,1,CV_32F));
         K_i.push_back(temp3.t());
 
-        K_aug.push_back(K_i);
+        K_fr.push_back(K_i);
     }
 
     cout << "\tRendering depth maps into reference view..." << endl;
@@ -819,6 +354,52 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     const int rows = shape.height;
     const int cols = shape.width;
 
+    // TEST
+    Mat t_world_l = Mat::zeros(4,1,CV_32F);
+    t_world_l.at<float>(0,0) = 42.83;
+    t_world_l.at<float>(1,0) = -11.35;
+    t_world_l.at<float>(2,0) = 652.64;
+    t_world_l.at<float>(3,0) = 1;
+
+    Mat t_world_r = Mat::zeros(4,1,CV_32F);
+    t_world_l.at<float>(0,0) = 28.73;
+    t_world_l.at<float>(1,0) = -52.2;
+    t_world_l.at<float>(2,0) = 665.978;
+    t_world_l.at<float>(3,0) = 1;
+
+    cout << P[index] << endl;
+    cout << K_fr[index] << endl;
+    
+    Mat t_p_l = K_fr[index] * P[index] * t_world_l;
+
+    t_p_l.at<float>(0,0) = t_p_l.at<float>(0,0)/t_p_l.at<float>(2,0);
+    t_p_l.at<float>(1,0) = t_p_l.at<float>(1,0)/t_p_l.at<float>(2,0);
+    t_p_l.at<float>(2,0) = t_p_l.at<float>(2,0)/t_p_l.at<float>(2,0);
+
+    int c_t_l = (int) floor(t_p_l.at<float>(0,0));
+    int r_t_l = (int) floor(t_p_l.at<float>(1,0));
+    cout << c_t_l << "," << r_t_l << endl << endl;
+
+    Mat t_p_r = K_fr[index] * P[index] * t_world_r;
+
+    t_p_r.at<float>(0,0) = t_p_r.at<float>(0,0)/t_p_r.at<float>(2,0);
+    t_p_r.at<float>(1,0) = t_p_r.at<float>(1,0)/t_p_r.at<float>(2,0);
+    t_p_r.at<float>(2,0) = t_p_r.at<float>(2,0)/t_p_r.at<float>(2,0);
+
+    int c_t_r = (int) floor(t_p_r.at<float>(0,0));
+    int r_t_r = (int) floor(t_p_r.at<float>(1,0));
+    cout << c_t_r << "," << r_t_r << endl << endl;
+    exit(0);
+
+
+    // TEST
+
+
+
+
+
+
+
     for (int d=0; d < depth_map_count; ++d) {
         if (d==index) {
             d_refs.push_back(depth_maps[index]);
@@ -826,7 +407,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
             // write ply file
             vector<int> green = {0, 255, 0};
-            write_ply(depth_maps[index], K_aug[index], P[index], "test_ref_" + to_string(index+1) + ".ply", green);
+            write_ply(depth_maps[index], K_fr[index], P[index], "test_ref_" + to_string(index+1) + ".ply", green);
 
             continue;
         }
@@ -849,19 +430,17 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                 x_1.at<float>(2,0) = 1;
                 x_1.at<float>(3,0) = 1/depth;
 
-                // take pseudo-inverse of extrinsics matrics for target image
-                //Mat P_inv;
-                //invert(P[d],P_inv,DECOMP_SVD);
-
                 // find 3D world coord of back projection
-                Mat X_world = P[d].inv() * K_aug[d].inv() * x_1;
+                Mat cam_coords = K_fr[d].inv() * x_1;
+                Mat X_world = P[d].inv() * cam_coords;
                 X_world.at<float>(0,0) = X_world.at<float>(0,0) / X_world.at<float>(0,3);
                 X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
                 X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
                 X_world.at<float>(0,3) = X_world.at<float>(0,3) / X_world.at<float>(0,3);
 
+
                 // find pixel location in reference image
-                Mat x_2 = K_aug[index] * P[index] * X_world;
+                Mat x_2 = K_fr[index] * P[index] * X_world;
 
                 x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                 x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
@@ -942,25 +521,22 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
                     //C -= c_map->at<float>(r,c);
                     // C -= C_i(P(X))
                     // compute corresponding (x,y) locations
-                    Mat x_1(4,1,CV_32F);
+                    Mat x_1(3,1,CV_32F);
                     x_1.at<float>(0,0) = c;
                     x_1.at<float>(1,0) = r;
                     x_1.at<float>(2,0) = 1;
                     x_1.at<float>(3,0) = 1/initial_f;
 
-                    // take pseudo-inverse of extrinsics matrics for target image
-                    //Mat P_inv;
-                    //invert(P[d],P_inv,DECOMP_SVD);
-
                     // find 3D world coord of back projection
-                    Mat X_world = P[initial_d].inv() * K_aug[initial_d].inv() * x_1;
+                    Mat cam_coords = K_fr[initial_d].inv() * x_1;
+                    Mat X_world = P[d].inv() * cam_coords;
                     X_world.at<float>(0,0) = X_world.at<float>(0,0) / X_world.at<float>(0,3);
                     X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
                     X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
                     X_world.at<float>(0,3) = X_world.at<float>(0,3) / X_world.at<float>(0,3);
 
                     // find pixel location in reference image
-                    Mat x_2 = K_aug[d] * P[d] * X_world;
+                    Mat x_2 = K_fr[d] * P[d] * X_world;
 
                     x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                     x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
@@ -1018,8 +594,8 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     }
 
     // write ply file
-    vector<int> gray = {150, 150, 150};
-    write_ply(smoothed_map, K_aug[index], P[index], "test_fused_" + to_string(index+2) + ".ply", gray);
+    vector<int> gray = {200, 200, 200};
+    write_ply(smoothed_map, K_fr[index], P[index], "test_fused_" + to_string(index+2) + ".ply", gray);
 
     write_map(smoothed_map, "depth_fused_" + to_string(index) + ".png", scale);
     write_map(fused_conf, "conf_fused_" + to_string(index) + ".png", scale);

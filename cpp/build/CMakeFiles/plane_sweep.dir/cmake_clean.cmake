@@ -1,5 +1,6 @@
 file(REMOVE_RECURSE
   "CMakeFiles/plane_sweep.dir/plane_sweep.cpp.o"
+  "CMakeFiles/plane_sweep.dir/util.cpp.o"
   "plane_sweep"
   "plane_sweep.pdb"
 )

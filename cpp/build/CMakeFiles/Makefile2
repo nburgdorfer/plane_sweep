@@ -93,12 +93,12 @@ clean: CMakeFiles/plane_sweep.dir/clean
 CMakeFiles/plane_sweep.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/nathaniel/dev/personal/plane_sweep/cpp/build/CMakeFiles --progress-num=1,2 "Built target plane_sweep"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/nathaniel/dev/personal/plane_sweep/cpp/build/CMakeFiles --progress-num=1,2,3 "Built target plane_sweep"
 .PHONY : CMakeFiles/plane_sweep.dir/all
 
 # Build rule for subdir invocation for target.
 CMakeFiles/plane_sweep.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/nathaniel/dev/personal/plane_sweep/cpp/build/CMakeFiles 2
+	$(CMAKE_COMMAND) -E cmake_progress_start /home/nathaniel/dev/personal/plane_sweep/cpp/build/CMakeFiles 3
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/plane_sweep.dir/all
 	$(CMAKE_COMMAND) -E cmake_progress_start /home/nathaniel/dev/personal/plane_sweep/cpp/build/CMakeFiles 0
 .PHONY : CMakeFiles/plane_sweep.dir/rule
