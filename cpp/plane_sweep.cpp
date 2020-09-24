@@ -355,6 +355,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     const int cols = shape.width;
 
     // TEST
+    /*
     Mat t_world_l = Mat::zeros(4,1,CV_32F);
     t_world_l.at<float>(0,0) = 42.83;
     t_world_l.at<float>(1,0) = -11.35;
@@ -391,14 +392,8 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     cout << c_t_r << "," << r_t_r << endl << endl;
     exit(0);
 
-
+    */
     // TEST
-
-
-
-
-
-
 
     for (int d=0; d < depth_map_count; ++d) {
         if (d==index) {
