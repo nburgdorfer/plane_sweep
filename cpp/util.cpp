@@ -417,38 +417,16 @@ void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string fi
 
     int crop_val = 25;
 
-    // crop 20 pixels
-    Mat cropped = depth_map(Rect(crop_val-1,crop_val-1,size.width-(2*crop_val),size.height-(2*crop_val)));
-
-    size = cropped.size();
     int rows = size.height;
     int cols = size.width;
 
-    int num_vertex = rows*cols;
+    vector<Mat> ply_points;
 
-
-    ofstream ply_file;
-    ply_file.open(filename);
-    ply_file << "ply\n";
-    ply_file << "format ascii 1.0\n";
-    ply_file << "element vertex " << num_vertex << "\n";
-    ply_file << "property float x\n";
-    ply_file << "property float y\n";
-    ply_file << "property float z\n";
-    ply_file << "property uchar red\n";
-    ply_file << "property uchar green\n";
-    ply_file << "property uchar blue\n";
-    ply_file << "element face 0\n";
-    ply_file << "end_header\n";
-    
-
-    for (int r=0; r<rows; ++r) {
-        for (int c=0; c<cols; ++c) {
-            // * 100 to convert to cm
-            float depth = cropped.at<float>(r,c);
+    for (int r=crop_val; r<rows-(crop_val*2); ++r) {
+        for (int c=crop_val; c<cols-(crop_val*2); ++c) {
+            float depth = depth_map.at<float>(r,c);
 
             if (depth <= 0) {
-                ply_file << "0 0 0 0 0 0\n";
                 continue;
             }
 
@@ -467,9 +445,38 @@ void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string fi
             X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
             X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
             X_world.at<float>(0,3) = X_world.at<float>(0,3) / X_world.at<float>(0,3);
-            
-            ply_file << X_world.at<float>(0,0) << " " << X_world.at<float>(0,1) << " " << X_world.at<float>(0,2) << " " << color[0] << " " << color[1] << " " << color[2] << "\n";
+
+            Mat ply_point = Mat::zeros(1,6,CV_32F);
+
+            ply_point.at<float>(0,0) = X_world.at<float>(0,0);
+            ply_point.at<float>(0,1) = X_world.at<float>(0,1);
+            ply_point.at<float>(0,2) = X_world.at<float>(0,2);
+
+            ply_point.at<float>(0,3) = color[0];
+            ply_point.at<float>(0,4) = color[1];
+            ply_point.at<float>(0,5) = color[2];
+
+            ply_points.push_back(ply_point);
         }
+    }
+
+    ofstream ply_file;
+    ply_file.open(filename);
+    ply_file << "ply\n";
+    ply_file << "format ascii 1.0\n";
+    ply_file << "element vertex " << ply_points.size() << "\n";
+    ply_file << "property float x\n";
+    ply_file << "property float y\n";
+    ply_file << "property float z\n";
+    ply_file << "property uchar red\n";
+    ply_file << "property uchar green\n";
+    ply_file << "property uchar blue\n";
+    ply_file << "element face 0\n";
+    ply_file << "end_header\n";
+
+    vector<Mat>::iterator pt(ply_points.begin());
+    for (; pt != ply_points.end(); ++pt) {
+        ply_file << pt->at<float>(0,0) << " " << pt->at<float>(0,1) << " " << pt->at<float>(0,2) << " " << pt->at<float>(0,3) << " " << pt->at<float>(0,4) << " " << pt->at<float>(0,5) << "\n";
     }
 
     ply_file.close();

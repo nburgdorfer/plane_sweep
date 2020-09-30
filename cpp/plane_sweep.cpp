@@ -355,17 +355,16 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     const int cols = shape.width;
 
     // TEST
-    /*
     Mat t_world_l = Mat::zeros(4,1,CV_32F);
-    t_world_l.at<float>(0,0) = -38.9;
-    t_world_l.at<float>(1,0) = 8.566;
-    t_world_l.at<float>(2,0) = -651.5;
+    t_world_l.at<float>(0,0) = 38.9;
+    t_world_l.at<float>(1,0) = -8.566;
+    t_world_l.at<float>(2,0) = 651.5;
     t_world_l.at<float>(3,0) = 1;
 
     Mat t_world_r = Mat::zeros(4,1,CV_32F);
-    t_world_r.at<float>(0,0) = -28.73;
-    t_world_r.at<float>(1,0) = 52.2;
-    t_world_r.at<float>(2,0) = -665.978;
+    t_world_r.at<float>(0,0) = 28.73;
+    t_world_r.at<float>(1,0) = -52.2;
+    t_world_r.at<float>(2,0) = 665.978;
     t_world_r.at<float>(3,0) = 1;
 
     cout << P[index] << endl;
@@ -391,7 +390,6 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
     int r_t_r = (int) floor(t_p_r.at<float>(1,0));
     cout << c_t_r << "," << r_t_r << endl << endl;
     exit(0);
-    */
     // TEST
 
     for (int d=0; d < depth_map_count; ++d) {
@@ -401,7 +399,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, const vector<Mat> &conf_ma
 
             // write ply file
             vector<int> green = {0, 255, 0};
-            write_ply(depth_maps[index], K_fr[index], P[index], "test_ref_" + to_string(index+1) + ".ply", green);
+            write_ply(depth_maps[index], K_fr[index], P[index], "ref_" + to_string(index+1) + ".ply", green);
 
             continue;
         }
