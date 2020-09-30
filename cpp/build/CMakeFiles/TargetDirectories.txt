@@ -1,3 +1,0 @@
-/home/nathaniel/dev/personal/plane_sweep/cpp/build/CMakeFiles/rebuild_cache.dir
-/home/nathaniel/dev/personal/plane_sweep/cpp/build/CMakeFiles/edit_cache.dir
-/home/nathaniel/dev/personal/plane_sweep/cpp/build/CMakeFiles/plane_sweep.dir
