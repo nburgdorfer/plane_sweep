@@ -295,12 +295,12 @@ int main(int argc, char **argv) {
         depth_maps.push_back(depth_map);
 
         // write depth image
-        write_map(depth_map, "disp_map_" + to_string(i) + ".png");
-        display_map(depth_map, "depth_" + to_string(i) + ".png", scale);
+        write_map(depth_map, "depth_" + to_string(i) + ".yml");
+        display_map(depth_map, "disp_map_" + to_string(i) + ".png", scale);
 
         // write confidence image
-        write_map(conf_map, "disp_conf_" + to_string(i) + ".png");
-        display_map(conf_map, "conf_" + to_string(i) + ".png", scale);
+        write_map(conf_map, "conf_" + to_string(i) + ".yml");
+        display_map(conf_map, "disp_conf_" + to_string(i) + ".png", scale);
     }
 
     return EXIT_SUCCESS;

@@ -12,6 +12,50 @@
 
 #include "util.h"
 
+void load_conf_maps(vector<Mat> *conf_maps, char *data_path) {
+    DIR *dir;
+    struct dirent *ent;
+    char conf_path[256];
+    vector<char*> conf_files;
+
+    // load images
+    strcpy(conf_path,data_path);
+    strcat(conf_path,"conf_maps/");
+
+    if((dir = opendir(conf_path)) == NULL) {
+        fprintf(stderr,"Error: Cannot open directory %s.\n",conf_path);
+        exit(EXIT_FAILURE);
+    }
+
+    while((ent = readdir(dir)) != NULL) {
+        if ((ent->d_name[0] != '.') && (ent->d_type != DT_DIR)) {
+            char *conf_filename = (char*) malloc(sizeof(char) * 256);
+
+            strcpy(conf_filename,conf_path);
+            strcat(conf_filename,ent->d_name);
+
+            conf_files.push_back(conf_filename);
+        }
+    }
+
+    // sort files by name
+    sort(conf_files.begin(), conf_files.end(), comp);
+
+    int conf_count = conf_files.size();
+
+    for (int i=0; i<conf_count; ++i) {
+        cv::FileStorage fs(conf_files[i], cv::FileStorage::READ);
+        Mat map;
+        fs["map"] >> map;
+
+        map.convertTo(map,CV_32F);
+        conf_maps->push_back(map);
+
+        fs.release();
+    }
+
+}
+
 void load_depth_maps(vector<Mat> *depth_maps, char *data_path) {
     DIR *dir;
     struct dirent *ent;
@@ -44,9 +88,14 @@ void load_depth_maps(vector<Mat> *depth_maps, char *data_path) {
     int depth_count = depth_files.size();
 
     for (int i=0; i<depth_count; ++i) {
-        Mat map = imread(depth_files[i]);
+        cv::FileStorage fs(depth_files[i], cv::FileStorage::READ);
+        Mat map;
+        fs["map"] >> map;
+
         map.convertTo(map,CV_32F);
         depth_maps->push_back(map);
+
+        fs.release();
     }
 }
 
@@ -445,6 +494,22 @@ void down_sample(vector<Mat> *images, vector<Mat> *intrinsics, const int scale) 
     }
 }
 
+// down-sample intrinsics
+void down_sample_k(vector<Mat> *intrinsics, const int scale) {
+    if (scale <= 0) {
+        return;
+    }
+
+    vector<Mat>::iterator k(intrinsics->begin());
+
+    for (; k != intrinsics->end(); ++k) {
+        k->at<float>(0,0) = k->at<float>(0,0)/(scale*2);
+        k->at<float>(1,1) = k->at<float>(1,1)/(scale*2);
+        k->at<float>(0,2) = k->at<float>(0,2)/(scale*2);
+        k->at<float>(1,2) = k->at<float>(1,2)/(scale*2);
+    }
+}
+
 // up-sample images (used for writing images)
 Mat up_sample(const Mat *image, const int scale) {
     Size size = image->size();
@@ -481,5 +546,7 @@ void display_map(const Mat map, string filename, const int scale) {
 
 // Image writing utility (stores map)
 void write_map(const Mat map, string filename) {
-    imwrite(filename, map);
+    cv::FileStorage fs(filename, cv::FileStorage::WRITE);
+    fs << "map" << map;
+    fs.release();
 }

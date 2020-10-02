@@ -21,8 +21,9 @@
  * @param conf_maps - The container holding the confidence maps needed for the fusion process
  *
  */
-void confidence_fusion(const vector<Mat> &depth_maps, Mat &fused_map, const vector<Mat> &conf_maps, Mat &fused_conf, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, const int index, const Size shape, const int scale){
+void confidence_fusion(const vector<Mat> &depth_maps, Mat &fused_map, const vector<Mat> &conf_maps, Mat &fused_conf, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, const int index, const int scale){
     int depth_map_count = depth_maps.size();
+    Size size = depth_maps[0].size();
 
     // compute bounds
     float min_dist = bounds[index].at<float>(0,0);
@@ -65,23 +66,18 @@ void confidence_fusion(const vector<Mat> &depth_maps, Mat &fused_map, const vect
     cout << "\tRendering depth maps into reference view..." << endl;
     vector<Mat> d_refs;
     vector<Mat> c_refs;
-    const int rows = shape.height;
-    const int cols = shape.width;
+    const int rows = size.height;
+    const int cols = size.width;
 
     for (int d=0; d < depth_map_count; ++d) {
         if (d==index) {
             d_refs.push_back(depth_maps[index]);
             c_refs.push_back(conf_maps[index]);
-
-            // write ply file
-            vector<int> green = {0, 255, 0};
-            write_ply(depth_maps[index], K_fr[index], P[index], "ref_" + to_string(index+1) + ".ply", green);
-
             continue;
         }
 
-        Mat d_ref = Mat::zeros(shape, CV_32F);
-        Mat c_ref = Mat::zeros(shape, CV_32F);
+        Mat d_ref = Mat::zeros(size, CV_32F);
+        Mat c_ref = Mat::zeros(size, CV_32F);
 
 #pragma omp parallel num_threads(24)
 {
@@ -117,7 +113,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, Mat &fused_map, const vect
                 int c_p = (int) floor(x_2.at<float>(0,0));
                 int r_p = (int) floor(x_2.at<float>(1,0));
 
-                if (c_p < 0 || c_p >= shape.width || r_p < 0 || r_p >= shape.height) {
+                if (c_p < 0 || c_p >= size.width || r_p < 0 || r_p >= size.height) {
                     continue;
                 }
 
@@ -209,7 +205,7 @@ void confidence_fusion(const vector<Mat> &depth_maps, Mat &fused_map, const vect
                     int c_p = (int) floor(x_2.at<float>(0,0));
                     int r_p = (int) floor(x_2.at<float>(1,0));
 
-                    if (c_p < 0 || c_p >= shape.width || r_p < 0 || r_p >= shape.height) {
+                    if (c_p < 0 || c_p >= size.width || r_p < 0 || r_p >= size.height) {
                         continue;
                     }
 
@@ -234,8 +230,8 @@ void confidence_fusion(const vector<Mat> &depth_maps, Mat &fused_map, const vect
     int w_s_offset = (w_s-1)/2;
     int w_s_inliers = (w_s*w_s)/2;
 
-    Mat filled_map = Mat::zeros(shape, CV_32F);
-    Mat smoothed_map = Mat::zeros(shape, CV_32F);
+    Mat filled_map = Mat::zeros(size, CV_32F);
+    Mat smoothed_map = Mat::zeros(size, CV_32F);
 
     // Fill in holes (-1 values) in depth map
     for (int r=w_offset; r<rows-w_offset; ++r) {
@@ -260,8 +256,8 @@ void confidence_fusion(const vector<Mat> &depth_maps, Mat &fused_map, const vect
     fused_map = smoothed_map;
 
     // write ply file
-    vector<int> gray = {200, 200, 200};
-    write_ply(fused_map, K_fr[index], P[index], "nate006_l3.ply", gray);
+    //vector<int> gray = {200, 200, 200};
+    //write_ply(fused_map, K_fr[index], P[index], "nate006_l3.ply", gray);
 }
 
 
@@ -272,8 +268,8 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    char *data_path = argv[2];
-    float scale = atof(argv[3]);
+    char *data_path = argv[1];
+    float scale = atof(argv[2]);
     size_t str_len = strlen(data_path);
 
     if (data_path[str_len-1] != '/') {
@@ -281,28 +277,29 @@ int main(int argc, char **argv) {
     }
     
     vector<Mat> depth_maps;
+    vector<Mat> conf_maps;
     vector<Mat> K;
     vector<Mat> R;
     vector<Mat> t;
     vector<Mat> bounds;
-    vector<Mat> confidence_maps;
-    Size shape;
     
     // load images, K's, R's, t's, bounds
     printf("Loading data...\n");
     load_depth_maps(&depth_maps, data_path);
+    load_conf_maps(&conf_maps, data_path);
     load_camera_params(&K, &R, &t, data_path);
     load_bounds(&bounds, data_path);
 
-    down_sample(&depth_maps, &K, scale);
+    down_sample_k(&K, scale);
 
     int depth_map_count = depth_maps.size();
+    Size size = depth_maps[0].size();
     int offset=3;
     int end_offset=8;
-    int fusion_offset = 2;
+    int fusion_offset = 0;
 
-    Mat fused_map;
-    Mat fused_conf;
+    Mat fused_map = Mat::zeros(size, CV_32F);
+    Mat fused_conf = Mat::zeros(size, CV_32F);
 
     //stability_fusion(depth_maps, confidence_maps);
     for (int i=fusion_offset; i<depth_map_count-fusion_offset; ++i) {
@@ -312,14 +309,14 @@ int main(int argc, char **argv) {
         vector<Mat> offset_t(t.begin()+offset, t.begin()+end_offset);
         vector<Mat> offset_bounds(bounds.begin()+offset, bounds.begin()+end_offset);
 
-        confidence_fusion(depth_maps, fused_map, confidence_maps, fused_conf, offset_K, offset_R, offset_t, offset_bounds, i, shape, scale);
+        confidence_fusion(depth_maps, fused_map, conf_maps, fused_conf, offset_K, offset_R, offset_t, offset_bounds, i, scale);
 
 
-        write_map(fused_map, "depth_fused_" + to_string(i) + ".png");
-        write_map(fused_conf, "conf_fused_" + to_string(i) + ".png");
+        write_map(fused_map, "depth_fused_" + to_string(i) + ".yml");
+        write_map(fused_conf, "conf_fused_" + to_string(i) + ".yml");
 
-        display_map(fused_map, "depth_fused_" + to_string(i) + ".png", scale);
-        display_map(fused_conf, "conf_fused_" + to_string(i) + ".png", scale);
+        display_map(fused_map, "disp_depth_fused_" + to_string(i) + ".png", scale);
+        //display_map(fused_conf, "disp_conf_fused_" + to_string(i) + ".png", scale);
     }
 
     return EXIT_SUCCESS;
