@@ -12,14 +12,14 @@
 
 #include "util.h"
 
-void load_conf_maps(vector<Mat> *conf_maps, char *data_path) {
+void load_conf_maps(vector<Mat> *conf_maps, string data_path) {
     DIR *dir;
     struct dirent *ent;
     char conf_path[256];
     vector<char*> conf_files;
 
     // load images
-    strcpy(conf_path,data_path);
+    strcpy(conf_path,data_path.c_str());
     strcat(conf_path,"conf_maps/");
 
     if((dir = opendir(conf_path)) == NULL) {
@@ -44,26 +44,29 @@ void load_conf_maps(vector<Mat> *conf_maps, char *data_path) {
     int conf_count = conf_files.size();
 
     for (int i=0; i<conf_count; ++i) {
+        /*
         cv::FileStorage fs(conf_files[i], cv::FileStorage::READ);
         Mat map;
         fs["map"] >> map;
 
         map.convertTo(map,CV_32F);
+        */
+        Mat map = read_csv(conf_files[i]);
         conf_maps->push_back(map);
 
-        fs.release();
+        //fs.release();
     }
 
 }
 
-void load_depth_maps(vector<Mat> *depth_maps, char *data_path) {
+void load_depth_maps(vector<Mat> *depth_maps, string data_path) {
     DIR *dir;
     struct dirent *ent;
     char depth_path[256];
     vector<char*> depth_files;
 
     // load images
-    strcpy(depth_path,data_path);
+    strcpy(depth_path,data_path.c_str());
     strcat(depth_path,"depth_maps/");
 
     if((dir = opendir(depth_path)) == NULL) {
@@ -88,14 +91,17 @@ void load_depth_maps(vector<Mat> *depth_maps, char *data_path) {
     int depth_count = depth_files.size();
 
     for (int i=0; i<depth_count; ++i) {
+        /*
         cv::FileStorage fs(depth_files[i], cv::FileStorage::READ);
         Mat map;
         fs["map"] >> map;
 
         map.convertTo(map,CV_32F);
+        */
+        Mat map = read_csv(depth_files[i]);
         depth_maps->push_back(map);
 
-        fs.release();
+        //fs.release();
     }
 }
 
@@ -106,14 +112,14 @@ void load_depth_maps(vector<Mat> *depth_maps, char *data_path) {
  * @param data_path - The relative path to the base directory for the data
  *
  */
-void load_images(vector<Mat> *images, char *data_path) {
+void load_images(vector<Mat> *images, string data_path) {
     DIR *dir;
     struct dirent *ent;
     char img_path[256];
     vector<char*> img_files;
 
     // load images
-    strcpy(img_path,data_path);
+    strcpy(img_path,data_path.c_str());
     strcat(img_path,"images/");
 
     if((dir = opendir(img_path)) == NULL) {
@@ -153,7 +159,7 @@ void load_images(vector<Mat> *images, char *data_path) {
  * @param data_path - The relative path to the base directory for the data
  *
  */
-void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, char *data_path) {
+void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, string data_path) {
     DIR *dir;
     struct dirent *ent;
     char camera_path[256];
@@ -166,7 +172,7 @@ void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, char *da
     char *ptr = NULL;
 
     // load intrinsics
-    strcpy(camera_path,data_path);
+    strcpy(camera_path,data_path.c_str());
     strcat(camera_path,"cameras/");
 
     if((dir = opendir(camera_path)) == NULL) {
@@ -277,7 +283,7 @@ void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, char *da
  * @param data_path - The relative path to the base directory for the data
  *
  */
-void load_bounds(vector<Mat> *bounds, char *data_path) {
+void load_bounds(vector<Mat> *bounds, string data_path) {
     DIR *dir;
     struct dirent *ent;
     char bounds_path[256];
@@ -290,7 +296,7 @@ void load_bounds(vector<Mat> *bounds, char *data_path) {
     char *ptr = NULL;
 
     // load bounds
-    strcpy(bounds_path,data_path);
+    strcpy(bounds_path,data_path.c_str());
     strcat(bounds_path,"bounding/");
 
     if((dir = opendir(bounds_path)) == NULL) {
@@ -495,7 +501,7 @@ void down_sample(vector<Mat> *images, vector<Mat> *intrinsics, const int scale) 
 }
 
 // down-sample intrinsics
-void down_sample_k(vector<Mat> *intrinsics, const int scale) {
+void down_sample_k(vector<Mat> *intrinsics, const float scale) {
     if (scale <= 0) {
         return;
     }
@@ -503,10 +509,10 @@ void down_sample_k(vector<Mat> *intrinsics, const int scale) {
     vector<Mat>::iterator k(intrinsics->begin());
 
     for (; k != intrinsics->end(); ++k) {
-        k->at<float>(0,0) = k->at<float>(0,0)/(scale*2);
-        k->at<float>(1,1) = k->at<float>(1,1)/(scale*2);
-        k->at<float>(0,2) = k->at<float>(0,2)/(scale*2);
-        k->at<float>(1,2) = k->at<float>(1,2)/(scale*2);
+        k->at<float>(0,0) = k->at<float>(0,0)*scale;
+        k->at<float>(1,1) = k->at<float>(1,1)*scale;
+        k->at<float>(0,2) = k->at<float>(0,2)*scale;
+        k->at<float>(1,2) = k->at<float>(1,2)*scale;
     }
 }
 
@@ -525,14 +531,10 @@ Mat up_sample(const Mat *image, const int scale) {
 }
 
 // Image display utility (scales to [0,255])
-void display_map(const Mat map, string filename, const int scale) {
-    Mat copy_map = map.clone();
-    // up-sample
-    Mat scaled_map = up_sample(&copy_map,scale);
-    Size size = scaled_map.size();
-
+void display_map(const Mat map, string filename) {
+    Size size = map.size();
     // crop 20 pixels
-    Mat cropped = scaled_map(Rect(24,24,size.width-50,size.height-50));
+    Mat cropped = map(Rect(24,24,size.width-50,size.height-50));
 
     double max;
     double min;
@@ -545,8 +547,58 @@ void display_map(const Mat map, string filename, const int scale) {
 }
 
 // Image writing utility (stores map)
-void write_map(const Mat map, string filename) {
+void write_map(const Mat map, const string filename) {
+    /*
     cv::FileStorage fs(filename, cv::FileStorage::WRITE);
     fs << "map" << map;
     fs.release();
+    */
+    Size size = map.size();
+    int rows = size.height;
+    int cols = size.width;
+
+    string curr_line;
+
+    ofstream output;
+    output.open(filename);
+
+    for(int r=0; r<rows; ++r) {
+        for(int c=0; c<cols; ++c) {
+            output << map.at<float>(r,c) << ",";
+        }
+        output << "\n";
+    }
+    output.close();
+}
+
+Mat read_csv(const string file_path) {
+    int rows = 0;
+    int cols = 0;
+
+    vector<vector<float>> data;
+    string curr_line;
+
+    ifstream input(file_path);
+
+    while(getline(input, curr_line)) {
+        vector<float> row;
+        stringstream line(curr_line);
+        string curr_val;
+
+        while(getline(line,curr_val,',')) {
+            row.push_back(stof(curr_val));
+        }
+        data.push_back(row);
+    }
+
+    rows = data.size();
+    cols = data[0].size();
+    Mat map = Mat::zeros(rows,cols,CV_32F);
+
+    for (int r=0; r<rows; ++r) {
+        for (int c=0; c<cols; ++c){
+            map.at<float>(r,c) = data[r][c];            
+        }
+    }
+    return map;
 }

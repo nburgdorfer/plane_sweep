@@ -248,14 +248,14 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    char *data_path = argv[1];
+    string data_path = argv[1];
     float scale = atof(argv[2]);
     int depth_count = atoi(argv[3]);
     int window_size = atoi(argv[4]);
-    size_t str_len = strlen(data_path);
+    size_t str_len = data_path.length();
 
     if (data_path[str_len-1] != '/') {
-        strcat(data_path, "/");
+        data_path += "/";
     }
     
     vector<Mat> images;
@@ -295,12 +295,12 @@ int main(int argc, char **argv) {
         depth_maps.push_back(depth_map);
 
         // write depth image
-        write_map(depth_map, "depth_" + to_string(i) + ".yml");
-        display_map(depth_map, "disp_map_" + to_string(i) + ".png", scale);
+        write_map(depth_map, "depth_" + to_string(i) + ".csv");
+        display_map(depth_map, "disp_map_" + to_string(i) + ".png");
 
         // write confidence image
-        write_map(conf_map, "conf_" + to_string(i) + ".yml");
-        display_map(conf_map, "disp_conf_" + to_string(i) + ".png", scale);
+        write_map(conf_map, "conf_" + to_string(i) + ".csv");
+        display_map(conf_map, "disp_conf_" + to_string(i) + ".png");
     }
 
     return EXIT_SUCCESS;
