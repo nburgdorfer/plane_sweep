@@ -1,4 +1,3 @@
 /home/nathaniel/dev/personal/plane_sweep/src/build/CMakeFiles/rebuild_cache.dir
 /home/nathaniel/dev/personal/plane_sweep/src/build/CMakeFiles/edit_cache.dir
-/home/nathaniel/dev/personal/plane_sweep/src/build/CMakeFiles/depth_fusion.dir
 /home/nathaniel/dev/personal/plane_sweep/src/build/CMakeFiles/plane_sweep.dir

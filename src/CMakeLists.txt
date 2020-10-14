@@ -7,7 +7,5 @@ find_package( OpenCV REQUIRED )
 find_package(OpenMP)
 
 add_executable( plane_sweep plane_sweep.cpp util.cpp )
-add_executable( depth_fusion depth_fusion.cpp util.cpp )
 
 target_link_libraries(plane_sweep PUBLIC OpenMP::OpenMP_CXX ${OpenCV_LIBS} )
-target_link_libraries(depth_fusion PUBLIC OpenMP::OpenMP_CXX ${OpenCV_LIBS} )

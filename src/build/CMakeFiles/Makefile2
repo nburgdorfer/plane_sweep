@@ -72,7 +72,6 @@ CMAKE_BINARY_DIR = /home/nathaniel/dev/personal/plane_sweep/src/build
 # Directory level rules for the build root directory
 
 # The main recursive "all" target.
-all: CMakeFiles/depth_fusion.dir/all
 all: CMakeFiles/plane_sweep.dir/all
 
 .PHONY : all
@@ -83,37 +82,9 @@ preinstall:
 .PHONY : preinstall
 
 # The main recursive "clean" target.
-clean: CMakeFiles/depth_fusion.dir/clean
 clean: CMakeFiles/plane_sweep.dir/clean
 
 .PHONY : clean
-
-#=============================================================================
-# Target rules for target CMakeFiles/depth_fusion.dir
-
-# All Build rule for target.
-CMakeFiles/depth_fusion.dir/all:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/depend
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/nathaniel/dev/personal/plane_sweep/src/build/CMakeFiles --progress-num=1,2,3 "Built target depth_fusion"
-.PHONY : CMakeFiles/depth_fusion.dir/all
-
-# Build rule for subdir invocation for target.
-CMakeFiles/depth_fusion.dir/rule: cmake_check_build_system
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/nathaniel/dev/personal/plane_sweep/src/build/CMakeFiles 3
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 CMakeFiles/depth_fusion.dir/all
-	$(CMAKE_COMMAND) -E cmake_progress_start /home/nathaniel/dev/personal/plane_sweep/src/build/CMakeFiles 0
-.PHONY : CMakeFiles/depth_fusion.dir/rule
-
-# Convenience name for target.
-depth_fusion: CMakeFiles/depth_fusion.dir/rule
-
-.PHONY : depth_fusion
-
-# clean rule for target.
-CMakeFiles/depth_fusion.dir/clean:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/clean
-.PHONY : CMakeFiles/depth_fusion.dir/clean
 
 #=============================================================================
 # Target rules for target CMakeFiles/plane_sweep.dir
@@ -122,7 +93,7 @@ CMakeFiles/depth_fusion.dir/clean:
 CMakeFiles/plane_sweep.dir/all:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/depend
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/build
-	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/nathaniel/dev/personal/plane_sweep/src/build/CMakeFiles --progress-num=4,5,6 "Built target plane_sweep"
+	@$(CMAKE_COMMAND) -E cmake_echo_color --switch=$(COLOR) --progress-dir=/home/nathaniel/dev/personal/plane_sweep/src/build/CMakeFiles --progress-num=1,2,3 "Built target plane_sweep"
 .PHONY : CMakeFiles/plane_sweep.dir/all
 
 # Build rule for subdir invocation for target.

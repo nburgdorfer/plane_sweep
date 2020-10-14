@@ -34,7 +34,7 @@ using namespace std;
  * @param window_size - The window size used for SAD (window_size x window_size)
  *
  */
-Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vector<Mat> &K, const vector<Mat> &R, const vector<Mat> &t, const vector<Mat> &bounds, int index, int depth_count, int window_size) {
+Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vector<Mat> &K, const vector<Mat> &P, const Bounds &bounds, int index, int depth_count, int window_size) {
 
     Size shape = images[index].size();
     float cost;
@@ -43,7 +43,7 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
 
     vector<vector<Mat>> homogs;
     Mat depth_map = Mat::zeros(shape, CV_32F);
-    Mat depth_values(shape, CV_32F);
+    Mat depth_values = Mat::zeros(shape, CV_32F);
     fill(cost_volume.begin(), cost_volume.end(), numeric_limits<float>::max());
 
     // create plane norm
@@ -51,10 +51,8 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
     n.at<float>(2,0) = 1;
 
     // compute bounds
-    float min_dist = bounds[index].at<float>(0,0);
-    float max_dist = bounds[index].at<float>(1,0);
-
-    float interval = (max_dist-min_dist)/depth_count;
+    float min_dist = bounds.min_dist;
+    float increment = bounds.increment;
 
     cout << "\tPre-computing homographies..." << endl;
     // pre-compute homographies
@@ -68,30 +66,10 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
             }
 
             // compute relative extrinsics
-            Mat M1;
-            // check to see if its a dtu dataset
-            M1.push_back(R[index].t());
-            M1.push_back(t[index].t());
-            M1 = M1.t();
-            Mat temp1;
-            temp1.push_back(Mat::zeros(3,1,CV_32F));
-            temp1.push_back(Mat::ones(1,1,CV_32F));
-            M1.push_back(temp1.t());
+            Mat P_rel = P[i]*P[index].inv();
 
-            Mat M2;
-            // check to see if its a dtu dataset
-            M2.push_back(R[i].t());
-            M2.push_back(t[i].t());
-            M2 = M2.t();
-            Mat temp2;
-            temp2.push_back(Mat::zeros(3,1,CV_32F));
-            temp2.push_back(Mat::ones(1,1,CV_32F));
-            M2.push_back(temp2.t());
-
-            Mat M = M2*M1.inv();
-
-            Mat R_rel = M(Rect(0,0,3,3));
-            Mat t_rel = M(Rect(3,0,1,3));
+            Mat R_rel = P_rel(Rect(0,0,3,3));
+            Mat t_rel = P_rel(Rect(3,0,1,3));
 
             // compute homography
             Mat H = K[i]*(R_rel + (t_rel * n.t()/z_curr)) * K[index].inv();
@@ -99,9 +77,8 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
             img_homogs.push_back(H);
         }
         homogs.push_back(img_homogs);
-        z_curr+=interval;
+        z_curr+=increment;
     }
-//} //omp
     int num_matches;
 
     cout << "\tBuilding depth map..." << endl;
@@ -126,13 +103,10 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
                     x_1.at<float>(1,0) = y;
                     x_1.at<float>(2,0) = 1;
 
-                    //cout << "d: " << d << "\nind: " << ind << endl;
-                    //cout << "homogs[d][ind]: " << homogs[d][ind] << endl << endl;
                     Mat x_2 = homogs[d][ind]*x_1;
                     x_2.at<float>(0,0) = x_2.at<float>(0,0)/x_2.at<float>(2,0);
                     x_2.at<float>(1,0) = x_2.at<float>(1,0)/x_2.at<float>(2,0);
                     x_2.at<float>(2,0) = x_2.at<float>(2,0)/x_2.at<float>(2,0);
-
 
                     int x_p = (int) floor(x_2.at<float>(0,0));
                     int y_p = (int) floor(x_2.at<float>(1,0));
@@ -161,7 +135,7 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
                     cost_volume[ind] = cost/num_matches;
                 }
 
-                z_curr+=interval;
+                z_curr+=increment;
             }
         }
     }
@@ -185,7 +159,7 @@ Mat plane_sweep(vector<float> &cost_volume, const vector<Mat> &images, const vec
                 }
             }
             
-            depth_values.at<float>(r,c) = min_dist + (interval*best_depth);
+            depth_values.at<float>(r,c) = min_dist + (increment*best_depth);
         }
     }
 
@@ -261,32 +235,28 @@ int main(int argc, char **argv) {
     vector<Mat> images;
     vector<Mat> depth_maps;
     vector<Mat> K;
-    vector<Mat> R;
-    vector<Mat> t;
-    vector<Mat> bounds;
+    vector<Mat> P;
+    Bounds bounds;
     vector<Mat> confidence_maps;
     Size shape;
-    
-    // load images, K's, R's, t's, bounds
+
+    // load images, K's, P's, bounds
     printf("Loading data...\n");
     load_images(&images, data_path);
-    load_camera_params(&K, &R, &t, data_path);
-    load_bounds(&bounds, data_path);
+    load_camera_params(&K, &P, &bounds, data_path);
 
     down_sample(&images, &K, scale);
 
     int img_count = images.size();
-    int offset = 3;
-    int end_offset = 8;
 
     // build depth map
-    for (int i=offset; i<end_offset; ++i) {
-        printf("Computing depth map for image %d/%d...\n",(i+1)-offset,end_offset-offset);
+    for (int i=0; i<img_count; ++i) {
+        printf("Computing depth map for image %d/%d...\n",(i+1),img_count);
 
         shape = images[i].size();
         vector<float> cost_volume(shape.width*shape.height*depth_count);
 
-        Mat depth_map = plane_sweep(cost_volume, images, K, R, t, bounds, i, depth_count, window_size);
+        Mat depth_map = plane_sweep(cost_volume, images, K, P, bounds, i, depth_count, window_size);
 
         Mat conf_map = Mat::zeros(shape, CV_32F);
         build_conf_map(depth_map, conf_map, cost_volume, shape, depth_count);
@@ -295,13 +265,12 @@ int main(int argc, char **argv) {
         depth_maps.push_back(depth_map);
 
         // write depth image
-        write_map(depth_map, "depth_" + to_string(i) + ".csv");
+        write_map(depth_map, data_path + "depth_maps/depth_" + to_string(i) + ".csv");
         display_map(depth_map, "disp_map_" + to_string(i) + ".png");
 
         // write confidence image
-        write_map(conf_map, "conf_" + to_string(i) + ".csv");
+        write_map(conf_map, data_path + "conf_maps/conf_" + to_string(i) + ".csv");
         display_map(conf_map, "disp_conf_" + to_string(i) + ".png");
     }
-
     return EXIT_SUCCESS;
 }

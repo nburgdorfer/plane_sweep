@@ -12,7 +12,9 @@
 
 #include "util.h"
 
+
 void load_conf_maps(vector<Mat> *conf_maps, string data_path) {
+    cout << "Loading confidence maps..." << endl;
     DIR *dir;
     struct dirent *ent;
     char conf_path[256];
@@ -60,6 +62,7 @@ void load_conf_maps(vector<Mat> *conf_maps, string data_path) {
 }
 
 void load_depth_maps(vector<Mat> *depth_maps, string data_path) {
+    cout << "Loading depth maps..." << endl;
     DIR *dir;
     struct dirent *ent;
     char depth_path[256];
@@ -113,6 +116,7 @@ void load_depth_maps(vector<Mat> *depth_maps, string data_path) {
  *
  */
 void load_images(vector<Mat> *images, string data_path) {
+    cout << "Loading images..." << endl;
     DIR *dir;
     struct dirent *ent;
     char img_path[256];
@@ -159,7 +163,8 @@ void load_images(vector<Mat> *images, string data_path) {
  * @param data_path - The relative path to the base directory for the data
  *
  */
-void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, string data_path) {
+void load_camera_params(vector<Mat> *K, vector<Mat> *P, Bounds *bounds, string data_path) {
+    cout << "Loading camera parameters..." << endl;
     DIR *dir;
     struct dirent *ent;
     char camera_path[256];
@@ -173,7 +178,7 @@ void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, string d
 
     // load intrinsics
     strcpy(camera_path,data_path.c_str());
-    strcat(camera_path,"cameras/");
+    strcat(camera_path,"cams/");
 
     if((dir = opendir(camera_path)) == NULL) {
         fprintf(stderr,"Error: Cannot open directory %s.\n",camera_path);
@@ -202,6 +207,41 @@ void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, string d
             exit(EXIT_FAILURE);
         }
 
+        // throw away 'extrinsic' tag...
+        bytes_read = getline(&line, &n, fp);
+        ptr = strstr(line,"\n");
+        strncpy(ptr,"\0",1);
+
+        // load P matrix
+        Mat P_i(4,4,CV_32F);
+        for (int j=0; j<4; ++j) {
+            if ((bytes_read = getline(&line, &n, fp)) == -1) {
+                fprintf(stderr, "Error: could not read line from %s.\n",camera_files[i]);
+            }
+
+            ptr = strstr(line,"\n");
+            strncpy(ptr,"\0",1);
+            
+            char *token = strtok(line," ");
+            int ind = 0;
+            while (token != NULL) {
+                P_i.at<float>(j,ind) = atof(token);
+
+                token = strtok(NULL," ");
+                ind++;
+            }
+        }
+
+        P->push_back(P_i);
+
+        // throw away empty line and 'intrinsic' tag...
+        bytes_read = getline(&line, &n, fp);
+        ptr = strstr(line,"\n");
+        strncpy(ptr,"\0",1);
+        bytes_read = getline(&line, &n, fp);
+        ptr = strstr(line,"\n");
+        strncpy(ptr,"\0",1);
+
         // load K matrix
         Mat K_i(3,3,CV_32F);
         for (int j=0; j<3; ++j) {
@@ -224,36 +264,12 @@ void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, string d
 
         K->push_back(K_i);
 
-        // throw away line "0 0 0"..... I don't know why it is there...
-        // maybe for radial distortion, so unused in this algorithm...
+        // throw away empty line...
         bytes_read = getline(&line, &n, fp);
         ptr = strstr(line,"\n");
         strncpy(ptr,"\0",1);
 
-        // load R matrix
-        Mat R_i(3,3,CV_32F);
-        for (int j=0; j<3; ++j) {
-            if ((bytes_read = getline(&line, &n, fp)) == -1) {
-                fprintf(stderr, "Error: could not read line from %s.\n",camera_files[i]);
-            }
-
-            ptr = strstr(line,"\n");
-            strncpy(ptr,"\0",1);
-            
-            char *token = strtok(line," ");
-            int ind = 0;
-            while (token != NULL) {
-                R_i.at<float>(j,ind) = atof(token);
-
-                token = strtok(NULL," ");
-                ind++;
-            }
-        }
-
-        R->push_back(R_i);
-
-        // load t matrix
-        Mat t_i(3,1,CV_32F);
+        // load Bounds
         if ((bytes_read = getline(&line, &n, fp)) == -1) {
             fprintf(stderr, "Error: could not read line from %s.\n",camera_files[i]);
         }
@@ -263,14 +279,10 @@ void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, string d
         
         char *token = strtok(line," ");
         int ind = 0;
-        while (token != NULL) {
-            t_i.at<float>(ind,0) = atof(token);
 
-            token = strtok(NULL," ");
-            ind++;
-        }
-
-        t->push_back(t_i);
+        bounds->min_dist = atof(token);
+        token = strtok(NULL," ");
+        bounds->increment = atof(token);
 
         fclose(fp);
     }
@@ -284,6 +296,7 @@ void load_camera_params(vector<Mat> *K, vector<Mat> *R, vector<Mat> *t, string d
  *
  */
 void load_bounds(vector<Mat> *bounds, string data_path) {
+    cout << "Loading bounds..." << endl;
     DIR *dir;
     struct dirent *ent;
     char bounds_path[256];
@@ -407,7 +420,7 @@ float mean_filt(const Mat &patch, int filter_width, int num_inliers) {
 void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string filename, const vector<int> color) {
     Size size = depth_map.size();
 
-    int crop_val = 25;
+    int crop_val = 0;
 
     int rows = size.height;
     int cols = size.width;
@@ -424,15 +437,14 @@ void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string fi
 
             // compute corresponding (x,y) locations
             Mat x_1(4,1,CV_32F);
-            x_1.at<float>(0,0) = c;
-            x_1.at<float>(1,0) = r;
-            x_1.at<float>(2,0) = 1;
-            x_1.at<float>(3,0) = 1/depth;
+            x_1.at<float>(0,0) = depth * c;
+            x_1.at<float>(1,0) = depth * r;
+            x_1.at<float>(2,0) = depth;
+            x_1.at<float>(3,0) = 1;
 
             // find 3D world coord of back projection
             Mat cam_coords = K.inv() * x_1;
             Mat X_world = P.inv() * cam_coords;
-
             X_world.at<float>(0,0) = X_world.at<float>(0,0) / X_world.at<float>(0,3);
             X_world.at<float>(0,1) = X_world.at<float>(0,1) / X_world.at<float>(0,3);
             X_world.at<float>(0,2) = X_world.at<float>(0,2) / X_world.at<float>(0,3);
@@ -476,11 +488,14 @@ void write_ply(const Mat &depth_map, const Mat &K, const Mat &P, const string fi
 }
 
 // down-sample images
-void down_sample(vector<Mat> *images, vector<Mat> *intrinsics, const int scale) {
+void down_sample(vector<Mat> *images, vector<Mat> *intrinsics, const float scale) {
     if (scale <= 0) {
         return;
     }
     Size size = (*images)[0].size();
+    Size scaled_size;
+    scaled_size.height = size.height * scale;
+    scaled_size.width = size.width * scale;
 
     vector<Mat>::iterator img(images->begin());
     vector<Mat>::iterator k(intrinsics->begin());
@@ -489,14 +504,14 @@ void down_sample(vector<Mat> *images, vector<Mat> *intrinsics, const int scale) 
         for (int i = 0; i < scale; ++i) {
             Mat temp_img = Mat::zeros(size, CV_32F);
 
-            pyrDown(*img,temp_img);
+            resize(*img,temp_img, scaled_size);
             *img = temp_img;
         }
 
-        k->at<float>(0,0) = k->at<float>(0,0)/(scale*2);
-        k->at<float>(1,1) = k->at<float>(1,1)/(scale*2);
-        k->at<float>(0,2) = k->at<float>(0,2)/(scale*2);
-        k->at<float>(1,2) = k->at<float>(1,2)/(scale*2);
+        k->at<float>(0,0) = k->at<float>(0,0)*scale;
+        k->at<float>(1,1) = k->at<float>(1,1)*scale;
+        k->at<float>(0,2) = k->at<float>(0,2)*scale;
+        k->at<float>(1,2) = k->at<float>(1,2)*scale;
     }
 }
 
@@ -541,7 +556,6 @@ void display_map(const Mat map, string filename) {
     Point min_loc;
     Point max_loc;
     minMaxLoc(cropped, &min, &max, &min_loc, &max_loc);
-    cropped = cropped-min;
     cropped = (cropped)*(255/(max));
     imwrite(filename, cropped);
 }
@@ -563,8 +577,9 @@ void write_map(const Mat map, const string filename) {
     output.open(filename);
 
     for(int r=0; r<rows; ++r) {
-        for(int c=0; c<cols; ++c) {
-            output << map.at<float>(r,c) << ",";
+        output << map.at<float>(r,0);
+        for(int c=1; c<cols; ++c) {
+            output << "," << map.at<float>(r,c);
         }
         output << "\n";
     }

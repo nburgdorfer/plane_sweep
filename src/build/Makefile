@@ -130,19 +130,6 @@ depend:
 .PHONY : depend
 
 #=============================================================================
-# Target rules for targets named depth_fusion
-
-# Build rule for target.
-depth_fusion: cmake_check_build_system
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 depth_fusion
-.PHONY : depth_fusion
-
-# fast build rule for target.
-depth_fusion/fast:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/build
-.PHONY : depth_fusion/fast
-
-#=============================================================================
 # Target rules for targets named plane_sweep
 
 # Build rule for target.
@@ -154,33 +141,6 @@ plane_sweep: cmake_check_build_system
 plane_sweep/fast:
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/build
 .PHONY : plane_sweep/fast
-
-depth_fusion.o: depth_fusion.cpp.o
-
-.PHONY : depth_fusion.o
-
-# target to build an object file
-depth_fusion.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/depth_fusion.cpp.o
-.PHONY : depth_fusion.cpp.o
-
-depth_fusion.i: depth_fusion.cpp.i
-
-.PHONY : depth_fusion.i
-
-# target to preprocess a source file
-depth_fusion.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/depth_fusion.cpp.i
-.PHONY : depth_fusion.cpp.i
-
-depth_fusion.s: depth_fusion.cpp.s
-
-.PHONY : depth_fusion.s
-
-# target to generate assembly for a file
-depth_fusion.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/depth_fusion.cpp.s
-.PHONY : depth_fusion.cpp.s
 
 plane_sweep.o: plane_sweep.cpp.o
 
@@ -215,7 +175,6 @@ util.o: util.cpp.o
 
 # target to build an object file
 util.cpp.o:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/util.cpp.o
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/util.cpp.o
 .PHONY : util.cpp.o
 
@@ -225,7 +184,6 @@ util.i: util.cpp.i
 
 # target to preprocess a source file
 util.cpp.i:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/util.cpp.i
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/util.cpp.i
 .PHONY : util.cpp.i
 
@@ -235,7 +193,6 @@ util.s: util.cpp.s
 
 # target to generate assembly for a file
 util.cpp.s:
-	$(MAKE) $(MAKESILENT) -f CMakeFiles/depth_fusion.dir/build.make CMakeFiles/depth_fusion.dir/util.cpp.s
 	$(MAKE) $(MAKESILENT) -f CMakeFiles/plane_sweep.dir/build.make CMakeFiles/plane_sweep.dir/util.cpp.s
 .PHONY : util.cpp.s
 
@@ -247,11 +204,7 @@ help:
 	@echo "... depend"
 	@echo "... edit_cache"
 	@echo "... rebuild_cache"
-	@echo "... depth_fusion"
 	@echo "... plane_sweep"
-	@echo "... depth_fusion.o"
-	@echo "... depth_fusion.i"
-	@echo "... depth_fusion.s"
 	@echo "... plane_sweep.o"
 	@echo "... plane_sweep.i"
 	@echo "... plane_sweep.s"
